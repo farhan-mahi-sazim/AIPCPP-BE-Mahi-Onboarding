@@ -1,0 +1,24 @@
+# Environments
+.env
+.venv/
+env/
+venv/
+ENV/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Project specific
+*.db
+*.sqlite3
