@@ -6,10 +6,10 @@ from app.modules.content.schemas import TContentCreate, TContentRead
 
 router = APIRouter()
 
+
 @router.post("/", response_model=TContentRead)
 async def create_content(
-    content_in: TContentCreate,
-    session: AsyncSession = Depends(get_db_session)
+    content_in: TContentCreate, session: AsyncSession = Depends(get_db_session)
 ) -> TContentRead:
     service = ContentService(session)
     return await service.process_and_store_content(content_in)

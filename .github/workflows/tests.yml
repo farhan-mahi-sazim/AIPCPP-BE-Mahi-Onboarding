@@ -1,0 +1,47 @@
+name: Tests
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      TEST_DB_HOST: localhost
+      TEST_DB_PORT: 5433
+      TEST_DB_USER: postgres
+      TEST_DB_PASSWORD: postgres
+      TEST_DB_NAME: test_fast_api
+      ENVIRONMENT: test
+      SECRET_KEY: test-secret-key-for-ci
+      ACCESS_TOKEN_EXPIRE_MINUTES: 30
+      REFRESH_TOKEN_EXPIRE_DAYS: 7
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_fast_api
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python
+
+      - name: Run tests
+        run: uv run pytest

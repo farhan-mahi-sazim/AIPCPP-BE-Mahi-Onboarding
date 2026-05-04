@@ -1,2 +1,11 @@
-# Shared SQLModel table models can go here, or in modules if domain-specific.
-# e.g., from sqlmodel import SQLModel, Field
+from .user import User
+from .document import Document, DocumentVersion, DocumentChunk
+from .job import ProcessingJob
+
+__all__ = [
+    "User",
+    "Document",
+    "DocumentVersion",
+    "DocumentChunk",
+    "ProcessingJob",
+]

@@ -1,0 +1,29 @@
+from datetime import datetime
+from typing import Optional, Dict, Any
+from uuid import UUID, uuid4
+from sqlmodel import Field, SQLModel, Relationship, Column, JSON
+from app.common.enums.job_status import EJobStatus
+from app.common.enums.pipeline_stage import EPipelineStage
+
+
+class ProcessingJob(SQLModel, table=True):
+    __tablename__ = "processing_jobs"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    document_id: UUID = Field(foreign_key="documents.id", index=True)
+
+    status: EJobStatus = Field(default=EJobStatus.PENDING)
+    stage: Optional[EPipelineStage] = None
+
+    retry_count: int = Field(default=0)
+    celery_task_id: Optional[str] = None
+
+    # Store errors, stack traces, and intermediate metadata
+    error_log: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
+    metadata: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    # Relationships
+    document: "Document" = Relationship(back_populates="jobs")
