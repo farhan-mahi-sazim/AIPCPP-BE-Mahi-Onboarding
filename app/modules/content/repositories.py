@@ -4,6 +4,7 @@ from app.modules.content.schemas import TContentCreate, TContentRead
 # Note: In a real application, you would interact with a SQLModel table model here.
 # For scaffolding, we are mocking the database persistence.
 
+
 class ContentRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -14,7 +15,7 @@ class ContentRepository:
             id=1,
             raw_text=content_data.raw_text,
             source_type=content_data.source_type,
-            summary=None
+            summary=None,
         )
         # self.session.add(db_content)
         # await self.session.flush()

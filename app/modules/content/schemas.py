@@ -1,8 +1,10 @@
 from pydantic import BaseModel
 
+
 class TContentCreate(BaseModel):
     raw_text: str
     source_type: str = "text"
+
 
 class TContentRead(BaseModel):
     id: int

@@ -3,6 +3,7 @@ from uuid import UUID, uuid4
 from sqlmodel import Field, SQLModel, Relationship
 from typing import List, Optional
 
+
 class User(SQLModel, table=True):
     __tablename__ = "users"
 

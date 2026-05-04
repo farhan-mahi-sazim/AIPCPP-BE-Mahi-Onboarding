@@ -1,0 +1,17 @@
+name: "Setup Database"
+description: "Run Alembic migrations against the PostgreSQL service container"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Wait for PostgreSQL
+      run: |
+        until pg_isready -h $DB_HOST -p $DB_PORT -U $DB_USER; do
+          echo "Waiting for PostgreSQL..."
+          sleep 2
+        done
+      shell: bash
+
+    - name: Run database migrations
+      run: uv run alembic upgrade head
+      shell: bash
