@@ -1,0 +1,5 @@
+TEST_UNIT_MS = "ms"
+TEST_SELECT_1 = "SELECT 1"
+TEST_DB_DOWN = "db down"
+TEST_LIVENESS_FAIL = "local liveness check returned status"
+TEST_LIVENESS_TIMEOUT = "liveness check timed out after 5s"

@@ -19,3 +19,8 @@ AsyncSessionLocal = async_sessionmaker(
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:
         yield session
+
+
+async def init_db() -> None:
+    """Placeholder for database initialization logic."""
+    pass
