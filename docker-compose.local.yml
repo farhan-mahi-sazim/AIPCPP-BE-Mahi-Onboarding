@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   postgres_dev:
-    image: postgres:17-alpine
+    image: pgvector/pgvector:pg17
     container_name: aipcpp_postgres_dev
     environment:
       POSTGRES_USER: postgres
@@ -15,7 +15,7 @@ services:
     restart: unless-stopped
 
   postgres_test:
-    image: postgres:17-alpine
+    image: pgvector/pgvector:pg17
     container_name: aipcpp_postgres_test
     environment:
       POSTGRES_USER: postgres

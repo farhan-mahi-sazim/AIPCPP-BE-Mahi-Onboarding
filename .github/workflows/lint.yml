@@ -1,0 +1,21 @@
+name: Lint
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python
+
+      - name: Check formatting with Black
+        run: uv run black --check app/
