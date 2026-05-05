@@ -30,7 +30,7 @@ class StorageService:
             logger.info(f"Bucket {self.bucket_name} not found. Creating...")
             self.s3.create_bucket(Bucket=self.bucket_name)
             logger.info(f"Bucket {self.bucket_name} created successfully.")
-        
+
         self._bucket_verified = True
 
     def upload_file(self, file_content: bytes, s3_key: str, content_type: str) -> str:

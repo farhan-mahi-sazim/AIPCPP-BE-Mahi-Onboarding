@@ -22,7 +22,7 @@ async def test_engine():
     async with engine.begin() as conn:
         # Enable pgvector extension
         await conn.execute(sa.text("CREATE EXTENSION IF NOT EXISTS vector;"))
-        
+
         # Manually drop tables with CASCADE to handle circular dependencies
         await conn.execute(sa.text("DROP TABLE IF EXISTS processing_jobs CASCADE;"))
         await conn.execute(sa.text("DROP TABLE IF EXISTS document_chunks CASCADE;"))
