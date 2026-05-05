@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from uuid import UUID, uuid4
-from sqlmodel import Field, SQLModel, Relationship, Column, JSON
+from sqlmodel import Field, SQLModel, Relationship, Column, JSON, DateTime
 from sqlalchemy import Text
 from pgvector.sqlalchemy import Vector
 from app.common.enums.file_type import EFileType
@@ -23,8 +23,14 @@ class Document(SQLModel, table=True):
         default=None, foreign_key="document_versions.id"
     )
 
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True)),
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True)),
+    )
 
     # Relationships
     owner: "User" = Relationship(back_populates="documents")
@@ -61,7 +67,10 @@ class DocumentVersion(SQLModel, table=True):
     )
 
     created_by: Optional[UUID] = Field(default=None, foreign_key="users.id")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True)),
+    )
 
     # Relationships
     document: Document = Relationship(
@@ -84,8 +93,11 @@ class DocumentChunk(SQLModel, table=True):
     # Semantic Search Layer (1536 is standard for OpenAI embeddings)
     embedding: Any = Field(sa_column=Column(Vector(1536)))
 
-    metadata: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    chunk_metadata: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True)),
+    )
 
     # Relationships
     document: Document = Relationship(back_populates="chunks")

@@ -1,5 +1,6 @@
 import enum
 
+
 class EPipelineStage(str, enum.Enum):
     EXTRACTION = "extraction"
     NORMALIZATION = "normalization"

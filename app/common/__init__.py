@@ -1,8 +1,8 @@
-from .enums import FileType, VersionSource, JobStatus, PipelineStage
+from .enums import EFileType, EVersionSource, EJobStatus, EPipelineStage
 
 __all__ = [
-    "FileType",
-    "VersionSource",
-    "JobStatus",
-    "PipelineStage",
+    "EFileType",
+    "EVersionSource",
+    "EJobStatus",
+    "EPipelineStage",
 ]

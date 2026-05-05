@@ -23,5 +23,24 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def init_db() -> None:
-    """Placeholder for database initialization logic."""
-    pass
+    """Initialize database and seed default user for development."""
+    from app.models.user import User
+    from sqlmodel import select
+    import uuid
+
+    DUMMY_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000000")
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(User).where(User.id == DUMMY_USER_ID))
+        user = result.scalar_one_or_none()
+
+        if not user:
+            default_user = User(
+                id=DUMMY_USER_ID,
+                email="dev@example.com",
+                hashed_password="not-a-real-password",  # No auth yet
+                full_name="Default Dev User",
+                is_active=True,
+            )
+            session.add(default_user)
+            await session.commit()
