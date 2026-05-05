@@ -41,17 +41,17 @@ jobs:
           --health-interval 10s --health-timeout 5s --health-retries 5
 
       minio:
-        image: minio/minio
+        image: bitnami/minio:latest
         env:
           MINIO_ROOT_USER: minioadmin
           MINIO_ROOT_PASSWORD: minioadmin
+          MINIO_DEFAULT_BUCKETS: aipcpp-uploads
         ports:
           - 9000:9000
           - 9001:9001
         options: >-
           --health-cmd "curl -f http://localhost:9000/minio/health/live"
           --health-interval 10s --health-timeout 5s --health-retries 5
-        args: server /data --console-address ":9001"
 
     steps:
       - name: Checkout repository
