@@ -10,27 +10,49 @@ from app.config.db import get_db_session
 from app.config.settings import settings
 from unittest.mock import MagicMock
 
-# Use a test database URL
-TEST_DATABASE_URL = settings.DATABASE_URL_SYNC.replace(
-    settings.DB_NAME, f"{settings.DB_NAME}_test"
-).replace("postgresql://", "postgresql+asyncpg://")
+# Use a test database URL safely
+_url = sa.engine.url.make_url(settings.DATABASE_URL_SYNC)
+if not _url.database.endswith("_test"):
+    _url = _url.set(database=f"{_url.database}_test")
+
+TEST_DATABASE_URL = _url.render_as_string(hide_password=False).replace(
+    "postgresql://", "postgresql+asyncpg://"
+)
 
 
 @pytest_asyncio.fixture
 async def test_engine():
     engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-    async with engine.begin() as conn:
-        # Enable pgvector extension
-        await conn.execute(sa.text("CREATE EXTENSION IF NOT EXISTS vector;"))
 
-        # Manually drop tables with CASCADE to handle circular dependencies
-        await conn.execute(sa.text("DROP TABLE IF EXISTS processing_jobs CASCADE;"))
-        await conn.execute(sa.text("DROP TABLE IF EXISTS document_chunks CASCADE;"))
-        await conn.execute(sa.text("DROP TABLE IF EXISTS document_versions CASCADE;"))
-        await conn.execute(sa.text("DROP TABLE IF EXISTS documents CASCADE;"))
-        await conn.execute(sa.text("DROP TABLE IF EXISTS users CASCADE;"))
+    # Retry logic for CI stability (waits for Postgres to be ready)
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            async with engine.begin() as conn:
+                # Enable pgvector extension
+                await conn.execute(sa.text("CREATE EXTENSION IF NOT EXISTS vector;"))
 
-        await conn.run_sync(SQLModel.metadata.create_all)
+                # Manually drop tables with CASCADE to handle circular dependencies
+                await conn.execute(
+                    sa.text("DROP TABLE IF EXISTS processing_jobs CASCADE;")
+                )
+                await conn.execute(
+                    sa.text("DROP TABLE IF EXISTS document_chunks CASCADE;")
+                )
+                await conn.execute(
+                    sa.text("DROP TABLE IF EXISTS document_versions CASCADE;")
+                )
+                await conn.execute(sa.text("DROP TABLE IF EXISTS documents CASCADE;"))
+                await conn.execute(sa.text("DROP TABLE IF EXISTS users CASCADE;"))
+
+                # Create all tables
+                await conn.run_sync(SQLModel.metadata.create_all)
+            break
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise e
+            await asyncio.sleep(2)
+
     yield engine
     await engine.dispose()
 

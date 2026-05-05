@@ -32,3 +32,8 @@ dev = [
 asyncio_mode = "auto"
 pythonpath = ["."]
 asyncio_default_fixture_loop_scope = "function"
+
+[tool.black]
+target-version = ['py312']
+line-length = 88
+include = '\.pyi?$'
