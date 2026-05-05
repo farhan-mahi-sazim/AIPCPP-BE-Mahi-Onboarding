@@ -7,6 +7,7 @@ import uuid
 
 router = APIRouter()
 
+
 # Temporary hardcoded User ID until Auth is implemented
 DUMMY_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
