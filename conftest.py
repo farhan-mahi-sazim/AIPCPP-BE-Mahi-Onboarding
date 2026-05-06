@@ -70,7 +70,9 @@ async def db_session(test_engine) -> AsyncSession:
 @pytest_asyncio.fixture
 async def client(db_session) -> AsyncClient:
     mock_storage = MagicMock()
-    mock_storage.upload_file.side_effect = lambda file_obj, s3_key, content_type: s3_key
+    mock_storage.upload_file.side_effect = (
+        lambda file_obj, s3_key, content_type, max_size=None: s3_key
+    )
 
     async def override_get_db_session():
         yield db_session

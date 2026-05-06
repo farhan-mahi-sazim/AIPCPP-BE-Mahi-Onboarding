@@ -48,8 +48,37 @@ class ContentService:
         file_id = uuid.uuid4()
         s3_key = self._generate_s3_key(owner_id, file_id, file.filename)
 
-        if file.size and file.size > MAX_FILE_SIZE:
-            raise ValueError(f"File too large. Maximum size is 50MB.")
+        # Try to get content-length from headers for early validation
+        content_length = None
+        try:
+            headers = getattr(file, "headers", None)
+            if headers:
+                # headers can be dict or Headers object; try both
+                content_length = (
+                    headers.get("content-length")
+                    if isinstance(headers, dict)
+                    else getattr(headers, "get", lambda x: None)("content-length")
+                )
+        except Exception as e:
+            logger.debug("Could not read headers from file: %s", e)
+
+        if content_length:
+            try:
+                file_size = int(content_length)
+                if file_size > MAX_FILE_SIZE:
+                    raise ValueError(f"File too large. Maximum size is 50MB.")
+            except ValueError as e:
+                if "Maximum size" in str(e):
+                    raise  # Re-raise file size validation errors
+                logger.warning(
+                    "Could not parse Content-Length for %s, will validate during upload",
+                    file.filename,
+                )
+        else:
+            logger.debug(
+                "Content-Length header missing or empty for %s. Size validation during upload.",
+                file.filename,
+            )
 
         try:
             await run_in_threadpool(
@@ -57,6 +86,7 @@ class ContentService:
                 file_obj=file.file,
                 s3_key=s3_key,
                 content_type=file.content_type or "application/octet-stream",
+                max_size=MAX_FILE_SIZE,
             )
         except Exception as e:
             logger.error("S3 upload failed for %s: %s", file.filename, str(e))
@@ -76,14 +106,49 @@ class ContentService:
             created_job = await self.job_repo.create(job)
 
             await self.session.commit()
+
+            try:
+                from celery import chain
+                from app.modules.content.tasks import (
+                    extract_text_task,
+                    analyze_content_task,
+                    generate_embeddings_task,
+                )
+
+                processing_pipeline = chain(
+                    extract_text_task.s(str(created_doc.id)),
+                    analyze_content_task.s(),
+                    generate_embeddings_task.s(),
+                )
+                processing_pipeline.apply_async()
+                logger.info(
+                    "Background pipeline triggered for document %s", created_doc.id
+                )
+            except ImportError:
+                logger.debug("Celery tasks not yet implemented, skipping pipeline")
+
             return TUploadResponse(document=created_doc, job=created_job)
 
         except Exception as e:
             logger.error(
-                "Database commit failed for file %s. S3 file is now orphaned: %s. Error: %s",
+                "Database commit failed for file %s. S3 key: %s. Error: %s",
                 file.filename,
                 s3_key,
                 str(e),
             )
             await self.session.rollback()
+
+            try:
+                await run_in_threadpool(
+                    self.storage_service.delete_file,
+                    s3_key=s3_key,
+                )
+                logger.info("Cleaned up S3 object after DB rollback: %s", s3_key)
+            except Exception as cleanup_error:
+                logger.error(
+                    "Failed to cleanup S3 object after DB failure: %s. Error: %s",
+                    s3_key,
+                    str(cleanup_error),
+                )
+
             raise e

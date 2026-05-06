@@ -19,12 +19,15 @@ class TestContentService:
         await ensure_user_exists(db_session)
 
         mock_storage = MagicMock()
+        mock_storage.upload_file.return_value = "s3_key"  # Mock returns s3_key
+
         mock_file = AsyncMock(spec=UploadFile)
         mock_file.filename = TEST_FILENAME
         mock_file.content_type = TEST_CONTENT_TYPE
         mock_file.read.return_value = TEST_CONTENT
         mock_file.size = len(TEST_CONTENT)
         mock_file.file = MagicMock()
+        mock_file.headers = {}  # Add headers attribute for ContentService
 
         service = ContentService(db_session, mock_storage)
 
@@ -44,6 +47,7 @@ class TestContentService:
         mock_file.filename = "virus.exe"
         mock_file.size = 100
         mock_file.file = MagicMock()
+        mock_file.headers = {}  # Add headers attribute
 
         service = ContentService(db_session, mock_storage)
 
