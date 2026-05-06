@@ -1,0 +1,246 @@
+import uuid
+import logging
+import os
+import io
+import json
+from sqlalchemy.orm import Session
+from app.modules.content.repositories import (
+    DocumentRepositorySync,
+    ProcessingJobRepositorySync,
+    DocumentVersionRepositorySync,
+    DocumentChunkRepositorySync,
+)
+from app.common.storage import StorageService
+from app.common.enums.job_status import EJobStatus
+from app.common.enums.pipeline_stage import EPipelineStage
+from app.common.enums.file_type import EFileType
+from app.common.enums.version_source import EVersionSource
+from app.models.document import DocumentVersion, DocumentChunk
+from app.config.settings import settings
+from app.modules.processing.prompts import ANALYSIS_SYSTEM_PROMPT, ANALYSIS_USER_PROMPT
+import litellm
+from pypdf import PdfReader
+import pytesseract
+from PIL import Image
+
+logger = logging.getLogger(__name__)
+
+
+class ProcessingService:
+    """Synchronous Processing Service for Celery."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+        self.doc_repo = DocumentRepositorySync(session)
+        self.job_repo = ProcessingJobRepositorySync(session)
+        self.version_repo = DocumentVersionRepositorySync(session)
+        self.chunk_repo = DocumentChunkRepositorySync(session)
+        self.storage = StorageService()
+
+    def process_extraction(self, document_id: uuid.UUID) -> str:
+        """Stage 1: Extract text from file (Synchronous)."""
+        doc = self.doc_repo.get_by_id(document_id)
+        if not doc:
+            raise ValueError(f"Document {document_id} not found")
+
+        # Idempotency check
+        if doc.raw_text:
+            logger.info(
+                "Document %s already has raw text, skipping extraction", document_id
+            )
+            return str(document_id)
+
+        # Update Job Stage
+        job = self.job_repo.get_by_document_id(document_id)
+        if job:
+            job.stage = EPipelineStage.EXTRACTION
+            job.status = EJobStatus.PROCESSING
+            self.session.commit()
+
+        # Download from S3 (boto3 is sync)
+        file_content = self.storage.get_file_content(doc.s3_key)
+
+        extracted_text = ""
+        if doc.file_type == EFileType.PDF:
+            reader = PdfReader(io.BytesIO(file_content))
+            for page in reader.pages:
+                extracted_text += page.extract_text() + "\n"
+        elif doc.file_type == EFileType.IMAGE:
+            image = Image.open(io.BytesIO(file_content))
+            extracted_text = pytesseract.image_to_string(image)
+        elif doc.file_type == EFileType.TEXT:
+            extracted_text = file_content.decode("utf-8")
+
+        # Save extracted text
+        doc.raw_text = extracted_text
+        self.session.commit()
+
+        logger.info("Extraction completed for document %s", document_id)
+        return str(document_id)
+
+    def process_ai_analysis(self, document_id: uuid.UUID) -> str:
+        """Stage 2: AI Summarization and Tagging (Synchronous)."""
+        doc = self.doc_repo.get_by_id(document_id)
+        if not doc or not doc.raw_text:
+            raise ValueError(f"Document {document_id} has no extracted text")
+
+        # Update Job Stage
+        job = self.job_repo.get_by_document_id(document_id)
+        if job:
+            job.stage = EPipelineStage.AI_TASK
+            self.session.commit()
+
+        # Fallback Chain for Analysis
+        models_to_try = [
+            settings.LITELLM_MODEL,
+            "gemini/gemini-2.0-flash",
+            "gemini/gemini-pro-latest",
+        ]
+
+        last_exception = None
+        for model_name in models_to_try:
+            try:
+                logger.info("Attempting AI Analysis with model: %s", model_name)
+                response = litellm.completion(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},
+                        {
+                            "role": "user",
+                            "content": ANALYSIS_USER_PROMPT.format(
+                                text=doc.raw_text[:8000]
+                            ),
+                        },
+                    ],
+                    response_format={"type": "json_object"},
+                    timeout=30,  # 30 second timeout
+                )
+
+                analysis_data = json.loads(response.choices[0].message.content)
+
+                # Save Usage Metadata
+                if job:
+                    job.job_metadata = {
+                        "usage": response.usage.to_dict(),
+                        "category": analysis_data.get("category"),
+                        "model_used": model_name,
+                    }
+
+                # Create AI Version
+                ai_version = DocumentVersion(
+                    document_id=document_id,
+                    version_number=1,
+                    data={
+                        "summary": analysis_data.get("summary"),
+                        "tags": analysis_data.get("tags"),
+                    },
+                    source=EVersionSource.AI,
+                )
+                self.version_repo.create(ai_version)
+
+                # Update Document current version
+                doc.current_version_id = ai_version.id
+                self.session.commit()
+
+                logger.info(
+                    "AI Analysis completed for document %s using %s",
+                    document_id,
+                    model_name,
+                )
+                return str(document_id)
+
+            except Exception as e:
+                logger.warning(
+                    "Model %s failed: %s. Trying next in chain...", model_name, e
+                )
+                last_exception = e
+                continue
+
+        # If all models fail
+        logger.error("All models in fallback chain failed for %s", document_id)
+        raise last_exception
+
+    def _chunk_text(
+        self, text: str, chunk_size: int = 1000, overlap: int = 200
+    ) -> list[str]:
+        """Simple sliding window chunker."""
+        chunks = []
+        start = 0
+        while start < len(text):
+            end = start + chunk_size
+            chunks.append(text[start:end])
+            start += chunk_size - overlap
+        return chunks
+
+    def process_embeddings(self, document_id: uuid.UUID) -> str:
+        """Stage 3: Vector Embeddings (Synchronous)."""
+        doc = self.doc_repo.get_by_id(document_id)
+        if not doc or not doc.raw_text:
+            raise ValueError(f"Document {document_id} has no extracted text")
+
+        # Update Job Stage
+        job = self.job_repo.get_by_document_id(document_id)
+        if job:
+            job.stage = EPipelineStage.EMBEDDING
+            self.session.commit()
+
+        # Idempotency: Clean old chunks if any
+        self.chunk_repo.delete_by_document_id(document_id)
+
+        # Chunk text
+        text_chunks = self._chunk_text(doc.raw_text)
+
+        # Fallback Chain for Embeddings
+        embedding_models = [
+            settings.LITELLM_EMBEDDING_MODEL,
+            "gemini/gemini-embedding-001",
+        ]
+
+        last_exception = None
+        for model_name in embedding_models:
+            try:
+                logger.info("Attempting Embeddings with model: %s", model_name)
+                response = litellm.embedding(
+                    model=model_name, input=text_chunks, timeout=20  # 20 second timeout
+                )
+
+                embeddings = [r["embedding"] for r in response.data]
+
+                # Save Chunks
+                db_chunks = [
+                    DocumentChunk(
+                        id=uuid.uuid4(),
+                        document_id=document_id,
+                        chunk_index=i,
+                        content=text_chunks[i],
+                        embedding=embeddings[i],
+                    )
+                    for i in range(len(text_chunks))
+                ]
+
+                self.chunk_repo.create_many(db_chunks)
+
+                # Finalize Job
+                if job:
+                    job.status = EJobStatus.COMPLETED
+                    job.stage = EPipelineStage.PERSISTENCE
+
+                self.session.commit()
+
+                logger.info(
+                    "Embedding generation completed for document %s using %s",
+                    document_id,
+                    model_name,
+                )
+                return str(document_id)
+
+            except Exception as e:
+                logger.warning(
+                    "Embedding model %s failed: %s. Trying next...", model_name, e
+                )
+                last_exception = e
+                continue
+
+        # If all fail
+        logger.error("All embedding models failed for %s", document_id)
+        raise last_exception

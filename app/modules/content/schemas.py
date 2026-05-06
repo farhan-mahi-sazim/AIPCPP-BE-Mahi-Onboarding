@@ -32,3 +32,13 @@ class TUploadResponse(BaseModel):
     document: TDocumentRead
     job: TJobRead
     message: str = "Upload successful. Processing started."
+
+
+class TSummaryRead(BaseModel):
+    document_id: UUID
+    filename: str
+    summary: Optional[str] = None
+    tags: List[str] = []
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

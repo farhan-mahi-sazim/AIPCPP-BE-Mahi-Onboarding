@@ -1,8 +1,11 @@
+from app.config.settings import settings
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from uuid import UUID, uuid4
 from sqlmodel import Field, SQLModel, Relationship, Column, JSON, DateTime
 from sqlalchemy import Text
+from sqlalchemy.dialects import postgresql
+import sqlalchemy as sa
 from pgvector.sqlalchemy import Vector
 from app.common.enums.file_type import EFileType
 from app.common.enums.version_source import EVersionSource
@@ -18,9 +21,12 @@ class Document(SQLModel, table=True):
     file_type: EFileType
     raw_text: Optional[str] = Field(default=None, sa_column=Column(Text))
 
-    # Version Pointer for Performance
     current_version_id: Optional[UUID] = Field(
-        default=None, foreign_key="document_versions.id"
+        default=None,
+        sa_column=Column(
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("document_versions.id", ondelete="SET NULL"),
+        ),
     )
 
     created_at: datetime = Field(
@@ -32,7 +38,6 @@ class Document(SQLModel, table=True):
         sa_column=Column(DateTime(timezone=True)),
     )
 
-    # Relationships
     owner: "User" = Relationship(back_populates="documents")
     versions: List["DocumentVersion"] = Relationship(
         back_populates="document",
@@ -58,7 +63,6 @@ class DocumentVersion(SQLModel, table=True):
     document_id: UUID = Field(foreign_key="documents.id", index=True)
     version_number: int
 
-    # Flexible schema for summary, tags, category
     data: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
 
     source: EVersionSource
@@ -72,7 +76,6 @@ class DocumentVersion(SQLModel, table=True):
         sa_column=Column(DateTime(timezone=True)),
     )
 
-    # Relationships
     document: Document = Relationship(
         back_populates="versions",
         sa_relationship_kwargs={
@@ -90,8 +93,7 @@ class DocumentChunk(SQLModel, table=True):
     chunk_index: int
     content: str = Field(sa_column=Column(Text))
 
-    # Semantic Search Layer (1536 is standard for OpenAI embeddings)
-    embedding: Any = Field(sa_column=Column(Vector(1536)))
+    embedding: Any = Field(sa_column=Column(Vector(settings.EMBEDDING_DIMENSION)))
 
     chunk_metadata: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     created_at: datetime = Field(
@@ -99,5 +101,4 @@ class DocumentChunk(SQLModel, table=True):
         sa_column=Column(DateTime(timezone=True)),
     )
 
-    # Relationships
     document: Document = Relationship(back_populates="chunks")

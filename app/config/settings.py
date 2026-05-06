@@ -5,6 +5,9 @@ class Settings(BaseSettings):
     APP_VERSION: str = "0.1.0"
     ENVIRONMENT: str = "development"
 
+    # Semantic Search Layer (3072 is standard for Gemini-2 embeddings)
+    EMBEDDING_DIMENSION: int = 3072
+
     DB_HOST: str = "localhost"
     DB_PORT: int = 5432
     DB_USER: str = "postgres"
@@ -20,7 +23,9 @@ class Settings(BaseSettings):
     S3_BUCKET_NAME: str = "aipcpp-uploads"
     S3_USE_SSL: bool = False
 
-    # Litellm / AI settings
+    # AI / LiteLLM
+    LITELLM_MODEL: str = "gemini/gemini-2.5-flash"
+    LITELLM_EMBEDDING_MODEL: str = "gemini/gemini-embedding-2"
     OPENAI_API_KEY: str | None = None
     GEMINI_API_KEY: str | None = None
 

@@ -2,13 +2,19 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import UploadFile
 from app.modules.content.repositories import DocumentRepository, ProcessingJobRepository
-from app.models.document import Document
+from app.models.document import Document, DocumentVersion
 from app.models.job import ProcessingJob
 from app.common.enums.file_type import EFileType
 from app.common.enums.job_status import EJobStatus
 from app.common.storage import StorageService
-from app.modules.content.schemas import TUploadResponse
+from app.modules.content.schemas import TUploadResponse, TSummaryRead
 from app.modules.content.constants import MAX_FILE_SIZE
+from app.modules.processing.tasks import (
+    extract_text_task,
+    analyze_content_task,
+    generate_embeddings_task,
+)
+from celery import chain
 from starlette.concurrency import run_in_threadpool
 import os
 import logging
@@ -76,6 +82,15 @@ class ContentService:
             created_job = await self.job_repo.create(job)
 
             await self.session.commit()
+
+            # Trigger Background Pipeline
+            processing_pipeline = chain(
+                extract_text_task.s(str(created_doc.id)),
+                analyze_content_task.s(),  # Receives doc_id from previous task
+                generate_embeddings_task.s(),  # Receives doc_id from previous task
+            )
+            processing_pipeline.apply_async()
+
             return TUploadResponse(document=created_doc, job=created_job)
 
         except Exception as e:
@@ -87,3 +102,54 @@ class ContentService:
             )
             await self.session.rollback()
             raise e
+
+    async def get_all_summaries(self) -> list[TSummaryRead]:
+        """Fetch all documents with their latest AI summary."""
+        rows = await self.document_repo.get_all_with_summaries()
+
+        summaries = []
+        for doc, version in rows:
+            summaries.append(
+                TSummaryRead(
+                    document_id=doc.id,
+                    filename=doc.filename,
+                    summary=version.data.get("summary") if version else None,
+                    tags=version.data.get("tags", []) if version else [],
+                    created_at=doc.created_at,
+                )
+            )
+
+        return summaries
+
+    async def get_summary(self, document_id: uuid.UUID) -> TSummaryRead | None:
+        row = await self.document_repo.get_summary(document_id)
+
+        if not row:
+            return None
+
+        doc, version = row
+        return TSummaryRead(
+            document_id=doc.id,
+            filename=doc.filename,
+            summary=version.data.get("summary") if version else None,
+            tags=version.data.get("tags", []) if version else [],
+            created_at=doc.created_at,
+        )
+
+    async def delete_document(self, document_id: uuid.UUID) -> None:
+        doc = await self.document_repo.get_by_id(document_id)
+        if not doc:
+            raise ValueError("Document not found")
+
+        s3_key = doc.s3_key
+
+        doc.current_version_id = None
+        await self.session.flush()
+
+        await self.document_repo.delete_summary(doc)
+        await self.session.commit()
+
+        try:
+            await run_in_threadpool(self.storage_service.delete_file, s3_key=s3_key)
+        except Exception as e:
+            logger.error("Failed to delete S3 file %s: %s", s3_key, e)

@@ -39,9 +39,6 @@ class StorageService:
     def upload_file(
         self, file_obj: typing.BinaryIO, s3_key: str, content_type: str
     ) -> str:
-        """
-        Uploads a file-like object to S3 and returns the s3_key.
-        """
         self._ensure_bucket_exists()
         try:
             self.s3.upload_fileobj(
@@ -56,9 +53,6 @@ class StorageService:
             raise e
 
     def get_file_content(self, s3_key: str) -> bytes:
-        """
-        Downloads a file from S3.
-        """
         self._ensure_bucket_exists()
         try:
             response = self.s3.get_object(Bucket=self.bucket_name, Key=s3_key)
@@ -68,9 +62,6 @@ class StorageService:
             raise e
 
     def get_presigned_url(self, s3_key: str, expires_in: int = 3600) -> str:
-        """
-        Generates a pre-signed URL for a file.
-        """
         self._ensure_bucket_exists()
         try:
             return self.s3.generate_presigned_url(
@@ -80,6 +71,15 @@ class StorageService:
             )
         except Exception as e:
             logger.error("Failed to generate pre-signed URL: %s", e)
+            raise e
+
+    def delete_file(self, s3_key: str) -> None:
+        self._ensure_bucket_exists()
+        try:
+            self.s3.delete_object(Bucket=self.bucket_name, Key=s3_key)
+            logger.info("File deleted from S3: %s", s3_key)
+        except Exception as e:
+            logger.error("Failed to delete file from S3: %s", e)
             raise e
 
 
