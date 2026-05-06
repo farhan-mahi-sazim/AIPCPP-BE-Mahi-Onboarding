@@ -20,6 +20,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # 0. Create pgvector extension
+    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+
     # 1. Create users table first
     op.create_table(
         "users",
@@ -195,3 +198,5 @@ def downgrade() -> None:
     op.execute("DROP TYPE eversionsource")
     op.execute("DROP TYPE ejobstatus")
     op.execute("DROP TYPE epipelinestage")
+    # Drop pgvector extension
+    op.execute("DROP EXTENSION IF EXISTS vector")

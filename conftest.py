@@ -13,6 +13,8 @@ from app.common.storage import get_storage_service
 
 # Use a test database URL safely
 _url = sa.engine.url.make_url(settings.DATABASE_URL_SYNC)
+# Tests always use the test container on 5433
+_url = _url.set(port=5433, username="postgres", password="postgres")
 if not _url.database.endswith("_test"):
     _url = _url.set(database=f"{_url.database}_test")
 
