@@ -6,6 +6,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+import typing
+
+
 class StorageService:
     def __init__(self) -> None:
         self.s3 = boto3.client(
@@ -27,27 +30,29 @@ class StorageService:
         try:
             self.s3.head_bucket(Bucket=self.bucket_name)
         except self.s3.exceptions.ClientError:
-            logger.info(f"Bucket {self.bucket_name} not found. Creating...")
+            logger.info("Bucket %s not found. Creating...", self.bucket_name)
             self.s3.create_bucket(Bucket=self.bucket_name)
-            logger.info(f"Bucket {self.bucket_name} created successfully.")
+            logger.info("Bucket %s created successfully.", self.bucket_name)
 
         self._bucket_verified = True
 
-    def upload_file(self, file_content: bytes, s3_key: str, content_type: str) -> str:
+    def upload_file(
+        self, file_obj: typing.BinaryIO, s3_key: str, content_type: str
+    ) -> str:
         """
-        Uploads a file to S3 and returns the s3_key.
+        Uploads a file-like object to S3 and returns the s3_key.
         """
         self._ensure_bucket_exists()
         try:
-            self.s3.put_object(
-                Bucket=self.bucket_name,
-                Key=s3_key,
-                Body=file_content,
-                ContentType=content_type,
+            self.s3.upload_fileobj(
+                file_obj,
+                self.bucket_name,
+                s3_key,
+                ExtraArgs={"ContentType": content_type},
             )
             return s3_key
         except Exception as e:
-            logger.error(f"Failed to upload file to S3: {e}")
+            logger.error("Failed to upload file to S3: %s", e)
             raise e
 
     def get_file_content(self, s3_key: str) -> bytes:
@@ -59,7 +64,7 @@ class StorageService:
             response = self.s3.get_object(Bucket=self.bucket_name, Key=s3_key)
             return response["Body"].read()
         except Exception as e:
-            logger.error(f"Failed to download file from S3: {e}")
+            logger.error("Failed to download file from S3: %s", e)
             raise e
 
     def get_presigned_url(self, s3_key: str, expires_in: int = 3600) -> str:
@@ -74,9 +79,9 @@ class StorageService:
                 ExpiresIn=expires_in,
             )
         except Exception as e:
-            logger.error(f"Failed to generate pre-signed URL: {e}")
+            logger.error("Failed to generate pre-signed URL: %s", e)
             raise e
 
 
-# Global instance
-storage_service = StorageService()
+def get_storage_service() -> StorageService:
+    return StorageService()

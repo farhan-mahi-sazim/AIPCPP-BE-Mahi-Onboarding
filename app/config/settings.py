@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     DB_PORT: int = 5432
     DB_USER: str = "postgres"
     DB_PASSWORD: str = "postgres"
-    DB_NAME: str = "postgres"
+    DB_NAME: str = "aipcpp_db"
 
     REDIS_URL: str = "redis://localhost:6379/0"
 

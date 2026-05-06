@@ -9,6 +9,7 @@ from app.main import app
 from app.config.db import get_db_session
 from app.config.settings import settings
 from unittest.mock import MagicMock
+from app.common.storage import get_storage_service
 
 # Use a test database URL safely
 _url = sa.engine.url.make_url(settings.DATABASE_URL_SYNC)
@@ -68,20 +69,22 @@ async def db_session(test_engine) -> AsyncSession:
 
 @pytest_asyncio.fixture
 async def client(db_session) -> AsyncClient:
+    mock_storage = MagicMock()
+    mock_storage.upload_file.side_effect = lambda file_obj, s3_key, content_type: s3_key
+
     async def override_get_db_session():
         yield db_session
 
+    async def override_get_storage_service():
+        yield mock_storage
+
     app.dependency_overrides[get_db_session] = override_get_db_session
+    app.dependency_overrides[get_storage_service] = override_get_storage_service
+
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://testserver"
     ) as ac:
+        ac.mock_storage = mock_storage  # Attach to client for assertions if needed
         yield ac
+
     app.dependency_overrides.clear()
-
-
-@pytest.fixture(autouse=True)
-def mock_storage(monkeypatch):
-    mock = MagicMock()
-    mock.upload_file.side_effect = lambda file_content, s3_key, content_type: s3_key
-    monkeypatch.setattr("app.modules.content.services.storage_service", mock)
-    return mock

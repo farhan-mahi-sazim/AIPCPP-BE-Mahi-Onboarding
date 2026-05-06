@@ -30,8 +30,8 @@ def upgrade() -> None:
         ),
         sa.Column("full_name", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
         sa.Column("is_active", sa.Boolean(), nullable=False),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(op.f("ix_users_email"), "users", ["email"], unique=True)
@@ -50,8 +50,8 @@ def upgrade() -> None:
         ),
         sa.Column("raw_text", sa.Text(), nullable=True),
         sa.Column("current_version_id", sa.Uuid(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
             ["owner_id"],
             ["users.id"],
@@ -74,7 +74,7 @@ def upgrade() -> None:
         ),
         sa.Column("parent_version_id", sa.Uuid(), nullable=True),
         sa.Column("created_by", sa.Uuid(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
             ["created_by"],
             ["users.id"],
@@ -116,7 +116,7 @@ def upgrade() -> None:
             "embedding", pgvector.sqlalchemy.vector.VECTOR(dim=1536), nullable=True
         ),
         sa.Column("chunk_metadata", sa.JSON(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
             ["document_id"],
             ["documents.id"],
@@ -155,8 +155,8 @@ def upgrade() -> None:
         sa.Column("celery_task_id", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
         sa.Column("error_log", sa.JSON(), nullable=True),
         sa.Column("job_metadata", sa.JSON(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
             ["document_id"],
             ["documents.id"],
