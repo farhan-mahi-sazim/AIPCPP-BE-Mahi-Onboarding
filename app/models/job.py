@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any
+from typing import Any
 from uuid import UUID, uuid4
 from sqlmodel import Field, SQLModel, Relationship, Column, JSON, DateTime
 from app.common.enums.job_status import EJobStatus
@@ -13,14 +13,14 @@ class ProcessingJob(SQLModel, table=True):
     document_id: UUID = Field(foreign_key="documents.id", index=True)
 
     status: EJobStatus = Field(default=EJobStatus.PENDING)
-    stage: Optional[EPipelineStage] = None
+    stage: EPipelineStage | None = None
 
     retry_count: int = Field(default=0)
-    celery_task_id: Optional[str] = None
+    celery_task_id: str | None = None
 
     # Store errors, stack traces, and intermediate metadata
-    error_log: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
-    job_metadata: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    error_log: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
+    job_metadata: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
 
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),

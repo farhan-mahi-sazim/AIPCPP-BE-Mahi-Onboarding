@@ -2,7 +2,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.document import Document
 from app.models.job import ProcessingJob
 from uuid import UUID
-from typing import Optional
 
 
 class DocumentRepository:
@@ -15,7 +14,7 @@ class DocumentRepository:
         await self.session.refresh(document)
         return document
 
-    async def get_by_id(self, document_id: UUID) -> Optional[Document]:
+    async def get_by_id(self, document_id: UUID) -> Document | None:
         return await self.session.get(Document, document_id)
 
 
@@ -29,5 +28,5 @@ class ProcessingJobRepository:
         await self.session.refresh(job)
         return job
 
-    async def get_by_id(self, job_id: UUID) -> Optional[ProcessingJob]:
+    async def get_by_id(self, job_id: UUID) -> ProcessingJob | None:
         return await self.session.get(ProcessingJob, job_id)

@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any
+from typing import Any, Optional
 from uuid import UUID, uuid4
 from sqlmodel import Field, SQLModel, Relationship, Column, JSON, DateTime
 from sqlalchemy import Text
@@ -16,10 +16,10 @@ class Document(SQLModel, table=True):
     filename: str
     s3_key: str
     file_type: EFileType
-    raw_text: Optional[str] = Field(default=None, sa_column=Column(Text))
+    raw_text: str | None = Field(default=None, sa_column=Column(Text))
 
     # Version Pointer for Performance
-    current_version_id: Optional[UUID] = Field(
+    current_version_id: UUID | None = Field(
         default=None, foreign_key="document_versions.id"
     )
 
@@ -34,18 +34,18 @@ class Document(SQLModel, table=True):
 
     # Relationships
     owner: "User" = Relationship(back_populates="documents")
-    versions: List["DocumentVersion"] = Relationship(
+    versions: list["DocumentVersion"] = Relationship(
         back_populates="document",
         sa_relationship_kwargs={
             "cascade": "all, delete-orphan",
             "primaryjoin": "Document.id==DocumentVersion.document_id",
         },
     )
-    chunks: List["DocumentChunk"] = Relationship(
+    chunks: list["DocumentChunk"] = Relationship(
         back_populates="document",
         sa_relationship_kwargs={"cascade": "all, delete-orphan"},
     )
-    jobs: List["ProcessingJob"] = Relationship(
+    jobs: list["ProcessingJob"] = Relationship(
         back_populates="document",
         sa_relationship_kwargs={"cascade": "all, delete-orphan"},
     )
@@ -59,14 +59,14 @@ class DocumentVersion(SQLModel, table=True):
     version_number: int
 
     # Flexible schema for summary, tags, category
-    data: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    data: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
 
     source: EVersionSource
-    parent_version_id: Optional[UUID] = Field(
+    parent_version_id: UUID | None = Field(
         default=None, foreign_key="document_versions.id"
     )
 
-    created_by: Optional[UUID] = Field(default=None, foreign_key="users.id")
+    created_by: UUID | None = Field(default=None, foreign_key="users.id")
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(DateTime(timezone=True)),
@@ -93,7 +93,7 @@ class DocumentChunk(SQLModel, table=True):
     # Semantic Search Layer (1536 is standard for OpenAI embeddings)
     embedding: Any = Field(sa_column=Column(Vector(1536)))
 
-    chunk_metadata: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    chunk_metadata: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(DateTime(timezone=True)),
