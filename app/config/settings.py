@@ -5,9 +5,6 @@ class Settings(BaseSettings):
     APP_VERSION: str = "0.1.0"
     ENVIRONMENT: str = "development"
 
-    # Semantic Search Layer (3072 is standard for Gemini-2 embeddings)
-    EMBEDDING_DIMENSION: int = 3072
-
     DB_HOST: str = "localhost"
     DB_PORT: int = 5432
     DB_USER: str = "postgres"
@@ -34,6 +31,11 @@ class Settings(BaseSettings):
         env_ignore_empty=True,
         extra="ignore",
     )
+
+    # Semantic Search Layer (3072 is standard for Gemini-2 embeddings)
+    EMBEDDING_DIMENSION: int = 3072
+    AI_ANALYSIS_TIMEOUT_SECONDS: int = 30
+    MODEL_EMBEDDING_TIMEOUT_SECONDS: int = 20
 
     @property
     def DATABASE_URL(self) -> str:

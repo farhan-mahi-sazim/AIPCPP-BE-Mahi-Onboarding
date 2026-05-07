@@ -27,8 +27,6 @@ logger = logging.getLogger(__name__)
 
 
 class ProcessingService:
-    """Synchronous Processing Service for Celery."""
-
     def __init__(self, session: Session) -> None:
         self.session = session
         self.doc_repo = DocumentRepositorySync(session)
@@ -38,26 +36,22 @@ class ProcessingService:
         self.storage = StorageService()
 
     def process_extraction(self, document_id: uuid.UUID) -> str:
-        """Stage 1: Extract text from file (Synchronous)."""
         doc = self.doc_repo.get_by_id(document_id)
         if not doc:
             raise ValueError(f"Document {document_id} not found")
 
-        # Idempotency check
         if doc.raw_text:
             logger.info(
                 "Document %s already has raw text, skipping extraction", document_id
             )
             return str(document_id)
 
-        # Update Job Stage
         job = self.job_repo.get_by_document_id(document_id)
         if job:
             job.stage = EPipelineStage.EXTRACTION
             job.status = EJobStatus.PROCESSING
             self.session.commit()
 
-        # Download from S3 (boto3 is sync)
         file_content = self.storage.get_file_content(doc.s3_key)
 
         extracted_text = ""
@@ -71,7 +65,6 @@ class ProcessingService:
         elif doc.file_type == EFileType.TEXT:
             extracted_text = file_content.decode("utf-8")
 
-        # Save extracted text
         doc.raw_text = extracted_text
         self.session.commit()
 
@@ -79,18 +72,15 @@ class ProcessingService:
         return str(document_id)
 
     def process_ai_analysis(self, document_id: uuid.UUID) -> str:
-        """Stage 2: AI Summarization and Tagging (Synchronous)."""
         doc = self.doc_repo.get_by_id(document_id)
         if not doc or not doc.raw_text:
             raise ValueError(f"Document {document_id} has no extracted text")
 
-        # Update Job Stage
         job = self.job_repo.get_by_document_id(document_id)
         if job:
             job.stage = EPipelineStage.AI_TASK
             self.session.commit()
 
-        # Fallback Chain for Analysis
         models_to_try = [
             settings.LITELLM_MODEL,
             "gemini/gemini-2.0-flash",
@@ -113,12 +103,11 @@ class ProcessingService:
                         },
                     ],
                     response_format={"type": "json_object"},
-                    timeout=30,  # 30 second timeout
+                    timeout=settings.AI_ANALYSIS_TIMEOUT_SECONDS,
                 )
 
                 analysis_data = json.loads(response.choices[0].message.content)
 
-                # Save Usage Metadata
                 if job:
                     job.job_metadata = {
                         "usage": response.usage.to_dict(),
@@ -126,7 +115,6 @@ class ProcessingService:
                         "model_used": model_name,
                     }
 
-                # Create AI Version
                 ai_version = DocumentVersion(
                     document_id=document_id,
                     version_number=1,
@@ -138,7 +126,6 @@ class ProcessingService:
                 )
                 self.version_repo.create(ai_version)
 
-                # Update Document current version
                 doc.current_version_id = ai_version.id
                 self.session.commit()
 
@@ -156,14 +143,12 @@ class ProcessingService:
                 last_exception = e
                 continue
 
-        # If all models fail
         logger.error("All models in fallback chain failed for %s", document_id)
         raise last_exception
 
     def _chunk_text(
         self, text: str, chunk_size: int = 1000, overlap: int = 200
     ) -> list[str]:
-        """Simple sliding window chunker."""
         chunks = []
         start = 0
         while start < len(text):
@@ -173,24 +158,19 @@ class ProcessingService:
         return chunks
 
     def process_embeddings(self, document_id: uuid.UUID) -> str:
-        """Stage 3: Vector Embeddings (Synchronous)."""
         doc = self.doc_repo.get_by_id(document_id)
         if not doc or not doc.raw_text:
             raise ValueError(f"Document {document_id} has no extracted text")
 
-        # Update Job Stage
         job = self.job_repo.get_by_document_id(document_id)
         if job:
             job.stage = EPipelineStage.EMBEDDING
             self.session.commit()
 
-        # Idempotency: Clean old chunks if any
         self.chunk_repo.delete_by_document_id(document_id)
 
-        # Chunk text
         text_chunks = self._chunk_text(doc.raw_text)
 
-        # Fallback Chain for Embeddings
         embedding_models = [
             settings.LITELLM_EMBEDDING_MODEL,
             "gemini/gemini-embedding-001",
@@ -201,12 +181,13 @@ class ProcessingService:
             try:
                 logger.info("Attempting Embeddings with model: %s", model_name)
                 response = litellm.embedding(
-                    model=model_name, input=text_chunks, timeout=20  # 20 second timeout
+                    model=model_name,
+                    input=text_chunks,
+                    timeout=settings.MODEL_EMBEDDING_TIMEOUT_SECONDS,  # 20 second timeout
                 )
 
                 embeddings = [r["embedding"] for r in response.data]
 
-                # Save Chunks
                 db_chunks = [
                     DocumentChunk(
                         id=uuid.uuid4(),
@@ -220,7 +201,6 @@ class ProcessingService:
 
                 self.chunk_repo.create_many(db_chunks)
 
-                # Finalize Job
                 if job:
                     job.status = EJobStatus.COMPLETED
                     job.stage = EPipelineStage.PERSISTENCE
@@ -241,6 +221,5 @@ class ProcessingService:
                 last_exception = e
                 continue
 
-        # If all fail
         logger.error("All embedding models failed for %s", document_id)
         raise last_exception

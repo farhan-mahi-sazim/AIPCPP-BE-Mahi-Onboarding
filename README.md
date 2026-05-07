@@ -136,6 +136,11 @@ In another terminal:
 just test
 ```
 
+## Documentation
+
+- [Summary Generation Pipeline](docs/summary_generation_pipeline.md): Detailed guide on the background processing workflow, AI analysis, and vector embeddings.
+- [Upload API Walkthrough](docs/upload_api_walkthrough.md): Guide for integrating the file upload API.
+
 ## Troubleshooting
 
 - If `docker compose` fails, verify Docker daemon is running.

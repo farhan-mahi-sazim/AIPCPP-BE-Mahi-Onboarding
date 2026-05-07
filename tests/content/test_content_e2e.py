@@ -59,7 +59,7 @@ class TestGetSummariesEndpoint:
     async def test_get_summaries_success(self, client: AsyncClient, db_session):
         """Should return all documents with their summaries."""
         await ensure_user_exists(db_session)
-        
+
         # Create test documents with summaries
         doc1, _ = await create_document_with_summary(
             db_session,
@@ -101,7 +101,7 @@ class TestGetSummariesEndpoint:
     ):
         """Should include documents without summaries (summary=None)."""
         await ensure_user_exists(db_session)
-        
+
         doc_with_summary, _ = await create_document_with_summary(
             db_session, filename="with_summary.pdf"
         )
@@ -130,7 +130,7 @@ class TestGetSummaryByIdEndpoint:
     async def test_get_summary_success(self, client: AsyncClient, db_session):
         """Should return summary for existing document with summary."""
         await ensure_user_exists(db_session)
-        
+
         doc, version = await create_document_with_summary(
             db_session,
             filename="my_summary.pdf",
@@ -151,7 +151,7 @@ class TestGetSummaryByIdEndpoint:
     async def test_get_summary_not_found(self, client: AsyncClient, db_session):
         """Should return 404 when document doesn't exist."""
         await ensure_user_exists(db_session)
-        
+
         non_existent_id = uuid.uuid4()
         response = await client.get(f"/api/v1/content/summaries/{non_existent_id}")
 
@@ -163,7 +163,7 @@ class TestGetSummaryByIdEndpoint:
     ):
         """Should return document with null summary if no version exists."""
         await ensure_user_exists(db_session)
-        
+
         doc = await create_document_without_summary(
             db_session, filename="pending_summary.pdf"
         )
@@ -177,9 +177,7 @@ class TestGetSummaryByIdEndpoint:
         assert data["summary"] is None
         assert data["tags"] == []
 
-    async def test_get_summary_invalid_uuid(
-        self, client: AsyncClient, db_session
-    ):
+    async def test_get_summary_invalid_uuid(self, client: AsyncClient, db_session):
         """Should return 422 for invalid UUID format."""
         await ensure_user_exists(db_session)
 
@@ -192,12 +190,10 @@ class TestGetSummaryByIdEndpoint:
 class TestDeleteDocumentEndpoint:
     """Test DELETE /summaries/{document_id} endpoint - delete a document."""
 
-    async def test_delete_document_success(
-        self, client: AsyncClient, db_session
-    ):
+    async def test_delete_document_success(self, client: AsyncClient, db_session):
         """Should delete document and return 204."""
         await ensure_user_exists(db_session)
-        
+
         doc, _ = await create_document_with_summary(
             db_session, filename="to_delete.pdf"
         )
@@ -217,17 +213,13 @@ class TestDeleteDocumentEndpoint:
         assert response.status_code == 404
 
         # Verify deletion from database
-        result = await db_session.execute(
-            select(Document).where(Document.id == doc_id)
-        )
+        result = await db_session.execute(select(Document).where(Document.id == doc_id))
         assert result.scalar_one_or_none() is None
 
-    async def test_delete_document_not_found(
-        self, client: AsyncClient, db_session
-    ):
+    async def test_delete_document_not_found(self, client: AsyncClient, db_session):
         """Should return 404 when trying to delete non-existent document."""
         await ensure_user_exists(db_session)
-        
+
         non_existent_id = uuid.uuid4()
         response = await client.delete(f"/api/v1/content/{non_existent_id}")
 
@@ -240,7 +232,7 @@ class TestDeleteDocumentEndpoint:
     ):
         """Should delete document even if no summary exists."""
         await ensure_user_exists(db_session)
-        
+
         doc = await create_document_without_summary(
             db_session, filename="delete_no_summary.txt"
         )
@@ -250,14 +242,10 @@ class TestDeleteDocumentEndpoint:
         assert response.status_code == 200
 
         # Verify deletion
-        result = await db_session.execute(
-            select(Document).where(Document.id == doc_id)
-        )
+        result = await db_session.execute(select(Document).where(Document.id == doc_id))
         assert result.scalar_one_or_none() is None
 
-    async def test_delete_document_invalid_uuid(
-        self, client: AsyncClient, db_session
-    ):
+    async def test_delete_document_invalid_uuid(self, client: AsyncClient, db_session):
         """Should return 422 for invalid UUID format."""
         await ensure_user_exists(db_session)
 
@@ -265,12 +253,10 @@ class TestDeleteDocumentEndpoint:
 
         assert response.status_code == 422
 
-    async def test_delete_document_twice(
-        self, client: AsyncClient, db_session
-    ):
+    async def test_delete_document_twice(self, client: AsyncClient, db_session):
         """Should return 404 on second delete attempt."""
         await ensure_user_exists(db_session)
-        
+
         doc, _ = await create_document_with_summary(
             db_session, filename="delete_twice.pdf"
         )
@@ -279,7 +265,7 @@ class TestDeleteDocumentEndpoint:
         # First delete
         response = await client.delete(f"/api/v1/content/{doc_id}")
         assert response.status_code == 200
-    
+
         # Second delete (should fail)
         response = await client.delete(f"/api/v1/content/{doc_id}")
         assert response.status_code == 404
