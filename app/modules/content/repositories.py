@@ -1,23 +1,32 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.modules.content.schemas import TContentCreate, TContentRead
+from app.models.document import Document
+from app.models.job import ProcessingJob
+from uuid import UUID
 
-# Note: In a real application, you would interact with a SQLModel table model here.
-# For scaffolding, we are mocking the database persistence.
 
-
-class ContentRepository:
+class DocumentRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create(self, content_data: TContentCreate) -> TContentRead:
-        # Mocking DB insertion
-        new_content = TContentRead(
-            id=1,
-            raw_text=content_data.raw_text,
-            source_type=content_data.source_type,
-            summary=None,
-        )
-        # self.session.add(db_content)
-        # await self.session.flush()
-        # await self.session.refresh(db_content)
-        return new_content
+    async def create(self, document: Document) -> Document:
+        self.session.add(document)
+        await self.session.flush()
+        await self.session.refresh(document)
+        return document
+
+    async def get_by_id(self, document_id: UUID) -> Document | None:
+        return await self.session.get(Document, document_id)
+
+
+class ProcessingJobRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def create(self, job: ProcessingJob) -> ProcessingJob:
+        self.session.add(job)
+        await self.session.flush()
+        await self.session.refresh(job)
+        return job
+
+    async def get_by_id(self, job_id: UUID) -> ProcessingJob | None:
+        return await self.session.get(ProcessingJob, job_id)

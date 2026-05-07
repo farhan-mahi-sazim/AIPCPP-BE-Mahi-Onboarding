@@ -38,7 +38,7 @@ async def health_check(
     body = THealthCheckResponse(
         status=overall,
         version=settings.APP_VERSION,
-        description="fast-api-template",
+        description="AI-content processing pipeline",
         timestamp=datetime.now(tz=timezone.utc),
         uptime_seconds=round(time.monotonic() - PROCESS_START, 2),
         environment=settings.ENVIRONMENT,

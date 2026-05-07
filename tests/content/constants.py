@@ -1,0 +1,13 @@
+from uuid import UUID
+
+DUMMY_USER_ID = UUID("00000000-0000-0000-0000-000000000000")
+TEST_EMAIL = "test@example.com"
+TEST_FULL_NAME = "Test User"
+
+PDF_FILENAME = "test.pdf"
+PDF_CONTENT = b"fake pdf content"
+EXE_FILENAME = "test.exe"
+EXE_CONTENT = b"fake exe content"
+
+SUCCESS_STATUS = "pending"
+UNSUPPORTED_TYPE_ERROR = "Unsupported file type"

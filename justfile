@@ -45,7 +45,7 @@ db-migrate-current:
 	uv run python -m alembic current
 
 db-seed:
-	uv run python -m app.seeders.runner
+	PYTHONPATH=. uv run python scripts/seed_db.py
 
 test:
 	uv run python -m pytest
