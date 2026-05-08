@@ -1,12 +1,12 @@
+import logging
+import typing
+
 import boto3
 from botocore.client import Config
+
 from app.config.settings import settings
-import logging
 
 logger = logging.getLogger(__name__)
-
-
-import typing
 
 
 class StorageService:

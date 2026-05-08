@@ -1,19 +1,19 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pytest import MonkeyPatch
 
 from app.modules.healthcheck import helpers
-from app.modules.healthcheck.tests.constants import (
-    TEST_UNIT_MS,
-    TEST_SELECT_1,
-    TEST_DB_DOWN,
-    TEST_LIVENESS_FAIL,
-    TEST_LIVENESS_TIMEOUT,
-)
 from app.modules.healthcheck.constants import DB_CHECK_TIMEOUT
 from app.modules.healthcheck.helpers import check_liveness, check_postgres
 from app.modules.healthcheck.schema import EHealthStatus, TLivenessResponse
+from app.modules.healthcheck.tests.constants import (
+    TEST_DB_DOWN,
+    TEST_LIVENESS_FAIL,
+    TEST_LIVENESS_TIMEOUT,
+    TEST_SELECT_1,
+    TEST_UNIT_MS,
+)
 
 
 class _FakeConnection:
@@ -45,7 +45,7 @@ class _FakeEngine:
 
 class _TimeoutOnConnectContext:
     async def __aenter__(self) -> _FakeConnection:
-        raise asyncio.TimeoutError
+        raise TimeoutError
 
     async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
         return None
@@ -113,7 +113,7 @@ async def test_check_liveness_passes_with_local_checker() -> None:
     async def fake_liveness() -> TLivenessResponse:
         return TLivenessResponse(
             status=EHealthStatus.PASS,
-            timestamp=datetime.now(tz=timezone.utc),
+            timestamp=datetime.now(tz=UTC),
         )
 
     result = await check_liveness(fake_liveness)
@@ -127,7 +127,7 @@ async def test_check_liveness_fails_with_non_pass_status() -> None:
     async def fake_liveness() -> TLivenessResponse:
         return TLivenessResponse(
             status=EHealthStatus.FAIL,
-            timestamp=datetime.now(tz=timezone.utc),
+            timestamp=datetime.now(tz=UTC),
         )
 
     result = await check_liveness(fake_liveness)
@@ -141,7 +141,7 @@ async def test_check_liveness_times_out() -> None:
         await asyncio.sleep(6)
         return TLivenessResponse(
             status=EHealthStatus.PASS,
-            timestamp=datetime.now(tz=timezone.utc),
+            timestamp=datetime.now(tz=UTC),
         )
 
     result = await check_liveness(slow_liveness)

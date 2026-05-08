@@ -1,11 +1,13 @@
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.config.db import get_db_session
-from app.modules.content.services import ContentService
-from app.modules.content.schemas import TUploadResponse
-from app.common.storage import get_storage_service, StorageService
-from app.modules.content.constants import UPLOAD_ERROR_MESSAGE
 import uuid
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.common.storage import StorageService, get_storage_service
+from app.config.db import get_db_session
+from app.modules.content.constants import UPLOAD_ERROR_MESSAGE
+from app.modules.content.schemas import TUploadResponse
+from app.modules.content.services import ContentService
 
 router = APIRouter()
 
@@ -27,7 +29,7 @@ async def upload_document(
         return await service.upload_document(file, owner_id=DUMMY_USER_ID)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except Exception as e:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=UPLOAD_ERROR_MESSAGE,

@@ -1,5 +1,6 @@
-from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
+
 from app.models.user import User
 from app.modules.content.tests.constants import DUMMY_USER_ID
 

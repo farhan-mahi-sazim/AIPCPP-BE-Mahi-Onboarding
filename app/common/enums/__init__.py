@@ -1,7 +1,7 @@
 from .file_type import EFileType
-from .version_source import EVersionSource
 from .job_status import EJobStatus
 from .pipeline_stage import EPipelineStage
+from .version_source import EVersionSource
 
 __all__ = [
     "EFileType",

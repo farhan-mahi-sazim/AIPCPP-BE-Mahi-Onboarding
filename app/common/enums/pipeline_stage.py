@@ -1,7 +1,7 @@
 import enum
 
 
-class EPipelineStage(str, enum.Enum):
+class EPipelineStage(enum.StrEnum):
     EXTRACTION = "extraction"
     NORMALIZATION = "normalization"
     AI_TASK = "ai_task"

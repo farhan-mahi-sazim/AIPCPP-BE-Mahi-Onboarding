@@ -1,7 +1,7 @@
 import asyncio
 import time
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import text
 
@@ -15,7 +15,7 @@ from app.modules.healthcheck.schema import (
 
 
 async def check_postgres() -> TDependencyCheck:
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     start = time.monotonic()
     try:
         async with asyncio.timeout(DB_CHECK_TIMEOUT):
@@ -30,7 +30,7 @@ async def check_postgres() -> TDependencyCheck:
             time=now,
         )
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return TDependencyCheck(
             status=EHealthStatus.FAIL,
             time=now,
@@ -47,7 +47,7 @@ async def check_postgres() -> TDependencyCheck:
 async def check_liveness(
     liveness_checker: Callable[[], Awaitable[TLivenessResponse]],
 ) -> TDependencyCheck:
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     start = time.monotonic()
 
     try:
@@ -66,7 +66,7 @@ async def check_liveness(
             time=now,
         )
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return TDependencyCheck(
             status=EHealthStatus.FAIL,
             time=now,

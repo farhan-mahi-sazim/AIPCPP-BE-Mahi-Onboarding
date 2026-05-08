@@ -1,7 +1,7 @@
 import enum
 
 
-class EFileType(str, enum.Enum):
+class EFileType(enum.StrEnum):
     PDF = "pdf"
     IMAGE = "image"
     TEXT = "text"

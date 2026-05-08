@@ -1,16 +1,18 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 from fastapi import UploadFile
+
+from app.common.enums.file_type import EFileType
+from app.common.enums.job_status import EJobStatus
 from app.modules.content.services import ContentService
 from app.modules.content.tests.constants import (
     DUMMY_USER_ID,
-    TEST_FILENAME,
     TEST_CONTENT,
     TEST_CONTENT_TYPE,
+    TEST_FILENAME,
 )
 from app.modules.content.tests.helpers import ensure_user_exists
-from app.common.enums.file_type import EFileType
-from app.common.enums.job_status import EJobStatus
 
 
 @pytest.mark.asyncio

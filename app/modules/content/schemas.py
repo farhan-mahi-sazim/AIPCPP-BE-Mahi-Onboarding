@@ -1,6 +1,8 @@
-from pydantic import BaseModel, ConfigDict
-from uuid import UUID
 from datetime import datetime
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict
+
 from app.common.enums.file_type import EFileType
 from app.common.enums.job_status import EJobStatus
 

@@ -1,6 +1,11 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
-from sqlmodel import Field, SQLModel, Relationship, Column, DateTime
+
+from sqlmodel import Column, DateTime, Field, Relationship, SQLModel
+
+if TYPE_CHECKING:
+    from .document import Document, DocumentVersion
 
 
 class User(SQLModel, table=True):
@@ -12,11 +17,11 @@ class User(SQLModel, table=True):
     full_name: str | None = None
     is_active: bool = Field(default=True)
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         sa_column=Column(DateTime(timezone=True)),
     )
     updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         sa_column=Column(DateTime(timezone=True)),
     )
 

@@ -1,12 +1,18 @@
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID, uuid4
-from sqlmodel import Field, SQLModel, Relationship, Column, JSON, DateTime
-from sqlalchemy import Text
+
 from pgvector.sqlalchemy import Vector
+from sqlalchemy import Text
+from sqlmodel import JSON, Column, DateTime, Field, Relationship, SQLModel
+
 from app.common.enums.file_type import EFileType
 from app.common.enums.version_source import EVersionSource
 from app.config.settings import settings
+
+if TYPE_CHECKING:
+    from .job import ProcessingJob
+    from .user import User
 
 
 class Document(SQLModel, table=True):
@@ -25,11 +31,11 @@ class Document(SQLModel, table=True):
     )
 
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         sa_column=Column(DateTime(timezone=True)),
     )
     updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         sa_column=Column(DateTime(timezone=True)),
     )
 
@@ -69,12 +75,12 @@ class DocumentVersion(SQLModel, table=True):
 
     created_by: UUID | None = Field(default=None, foreign_key="users.id")
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         sa_column=Column(DateTime(timezone=True)),
     )
 
     # Relationships
-    document: Document = Relationship(
+    document: "Document" = Relationship(
         back_populates="versions",
         sa_relationship_kwargs={
             "primaryjoin": "DocumentVersion.document_id==Document.id"
@@ -96,9 +102,9 @@ class DocumentChunk(SQLModel, table=True):
 
     chunk_metadata: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         sa_column=Column(DateTime(timezone=True)),
     )
 
     # Relationships
-    document: Document = Relationship(back_populates="chunks")
+    document: "Document" = Relationship(back_populates="chunks")

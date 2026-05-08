@@ -1,18 +1,19 @@
 import asyncio
-import pytest
+from unittest.mock import MagicMock
+
 import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
 import sqlalchemy as sa
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlmodel import SQLModel
-from app.main import app
+
+from app.common.storage import get_storage_service
 from app.config.db import get_db_session
 from app.config.settings import settings
-from unittest.mock import MagicMock
-from app.common.storage import get_storage_service
+from app.main import app
 
 # Use a test database URL safely
-_url = sa.engine.url.make_url(settings.DATABASE_URL_SYNC)
+_url = sa.engine.url.make_url(settings.database_url_sync)
 # Tests always use the test container on 5433
 _url = _url.set(port=5433, username="postgres", password="postgres")
 if not _url.database.endswith("_test"):
@@ -62,10 +63,10 @@ async def test_engine():
 
 @pytest_asyncio.fixture
 async def db_session(test_engine) -> AsyncSession:
-    Session = async_sessionmaker(
+    session_factory = async_sessionmaker(
         bind=test_engine, class_=AsyncSession, expire_on_commit=False
     )
-    async with Session() as session:
+    async with session_factory() as session:
         yield session
 
 

@@ -1,7 +1,9 @@
+from uuid import UUID
+
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.models.document import Document
 from app.models.job import ProcessingJob
-from uuid import UUID
 
 
 class DocumentRepository:

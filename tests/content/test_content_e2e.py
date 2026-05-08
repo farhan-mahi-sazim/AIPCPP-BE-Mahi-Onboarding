@@ -1,11 +1,11 @@
 import pytest
 from httpx import AsyncClient
+
 from tests.content.constants import (
-    DUMMY_USER_ID,
-    PDF_FILENAME,
-    PDF_CONTENT,
-    EXE_FILENAME,
     EXE_CONTENT,
+    EXE_FILENAME,
+    PDF_CONTENT,
+    PDF_FILENAME,
     SUCCESS_STATUS,
     UNSUPPORTED_TYPE_ERROR,
 )

@@ -1,9 +1,14 @@
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
-from sqlmodel import Field, SQLModel, Relationship, Column, JSON, DateTime
+
+from sqlmodel import JSON, Column, DateTime, Field, Relationship, SQLModel
+
 from app.common.enums.job_status import EJobStatus
 from app.common.enums.pipeline_stage import EPipelineStage
+
+if TYPE_CHECKING:
+    from .document import Document
 
 
 class ProcessingJob(SQLModel, table=True):
@@ -23,11 +28,11 @@ class ProcessingJob(SQLModel, table=True):
     job_metadata: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
 
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         sa_column=Column(DateTime(timezone=True)),
     )
     updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         sa_column=Column(DateTime(timezone=True)),
     )
 

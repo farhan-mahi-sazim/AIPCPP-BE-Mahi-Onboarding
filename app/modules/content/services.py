@@ -1,17 +1,19 @@
+import logging
+import os
 import uuid
-from sqlalchemy.ext.asyncio import AsyncSession
+
 from fastapi import UploadFile
-from app.modules.content.repositories import DocumentRepository, ProcessingJobRepository
-from app.models.document import Document
-from app.models.job import ProcessingJob
+from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
+
 from app.common.enums.file_type import EFileType
 from app.common.enums.job_status import EJobStatus
 from app.common.storage import StorageService
-from app.modules.content.schemas import TUploadResponse
+from app.models.document import Document
+from app.models.job import ProcessingJob
 from app.modules.content.constants import MAX_FILE_SIZE
-from starlette.concurrency import run_in_threadpool
-import os
-import logging
+from app.modules.content.repositories import DocumentRepository, ProcessingJobRepository
+from app.modules.content.schemas import TUploadResponse
 
 logger = logging.getLogger(__name__)
 
@@ -27,33 +29,24 @@ class ContentService:
     def _generate_s3_key(owner_id: uuid.UUID, file_id: uuid.UUID, filename: str) -> str:
         return f"{owner_id}/{file_id}/{filename}"
 
-    async def upload_document(
-        self, file: UploadFile, owner_id: uuid.UUID
-    ) -> TUploadResponse:
-        extension = os.path.splitext(file.filename)[1].lower().lstrip(".")
-
-        EXTENSION_MAP = {
+    def _get_file_type(self, filename: str) -> EFileType:
+        extension = os.path.splitext(filename)[1].lower().lstrip(".")
+        extension_map = {
             "pdf": EFileType.PDF,
             "jpg": EFileType.IMAGE,
             "jpeg": EFileType.IMAGE,
             "png": EFileType.IMAGE,
             "txt": EFileType.TEXT,
         }
-
-        if extension not in EXTENSION_MAP:
+        if extension not in extension_map:
             raise ValueError(f"Unsupported file type: {extension}")
+        return extension_map[extension]
 
-        file_type = EXTENSION_MAP[extension]
-
-        file_id = uuid.uuid4()
-        s3_key = self._generate_s3_key(owner_id, file_id, file.filename)
-
-        # Try to get content-length from headers for early validation
+    def _validate_file_size_early(self, file: UploadFile) -> None:
         content_length = None
         try:
             headers = getattr(file, "headers", None)
             if headers:
-                # headers can be dict or Headers object; try both
                 content_length = (
                     headers.get("content-length")
                     if isinstance(headers, dict)
@@ -66,10 +59,10 @@ class ContentService:
             try:
                 file_size = int(content_length)
                 if file_size > MAX_FILE_SIZE:
-                    raise ValueError(f"File too large. Maximum size is 50MB.")
+                    raise ValueError("File too large. Maximum size is 50MB.")
             except ValueError as e:
                 if "Maximum size" in str(e):
-                    raise  # Re-raise file size validation errors
+                    raise
                 logger.warning(
                     "Could not parse Content-Length for %s, will validate during upload",
                     file.filename,
@@ -79,6 +72,35 @@ class ContentService:
                 "Content-Length header missing or empty for %s. Size validation during upload.",
                 file.filename,
             )
+
+    async def _trigger_pipeline(self, document_id: uuid.UUID) -> None:
+        try:
+            from celery import chain
+
+            from app.modules.content.tasks import (
+                analyze_content_task,
+                extract_text_task,
+                generate_embeddings_task,
+            )
+
+            processing_pipeline = chain(
+                extract_text_task.s(str(document_id)),
+                analyze_content_task.s(),
+                generate_embeddings_task.s(),
+            )
+            processing_pipeline.apply_async()
+            logger.info("Background pipeline triggered for document %s", document_id)
+        except ImportError:
+            logger.debug("Celery tasks not yet implemented, skipping pipeline")
+
+    async def upload_document(
+        self, file: UploadFile, owner_id: uuid.UUID
+    ) -> TUploadResponse:
+        file_type = self._get_file_type(file.filename)
+        self._validate_file_size_early(file)
+
+        file_id = uuid.uuid4()
+        s3_key = self._generate_s3_key(owner_id, file_id, file.filename)
 
         try:
             await run_in_threadpool(
@@ -106,26 +128,7 @@ class ContentService:
             created_job = await self.job_repo.create(job)
 
             await self.session.commit()
-
-            try:
-                from celery import chain
-                from app.modules.content.tasks import (
-                    extract_text_task,
-                    analyze_content_task,
-                    generate_embeddings_task,
-                )
-
-                processing_pipeline = chain(
-                    extract_text_task.s(str(created_doc.id)),
-                    analyze_content_task.s(),
-                    generate_embeddings_task.s(),
-                )
-                processing_pipeline.apply_async()
-                logger.info(
-                    "Background pipeline triggered for document %s", created_doc.id
-                )
-            except ImportError:
-                logger.debug("Celery tasks not yet implemented, skipping pipeline")
+            await self._trigger_pipeline(created_doc.id)
 
             return TUploadResponse(document=created_doc, job=created_job)
 
