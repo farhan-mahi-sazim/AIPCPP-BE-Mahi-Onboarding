@@ -6,6 +6,7 @@ from sqlalchemy import Text
 from pgvector.sqlalchemy import Vector
 from app.common.enums.file_type import EFileType
 from app.common.enums.version_source import EVersionSource
+from app.config.settings import settings
 
 
 class Document(SQLModel, table=True):
@@ -91,7 +92,7 @@ class DocumentChunk(SQLModel, table=True):
     content: str = Field(sa_column=Column(Text))
 
     # Semantic Search Layer (1536 is standard for OpenAI embeddings)
-    embedding: Any = Field(sa_column=Column(Vector(1536)))
+    embedding: Any = Field(sa_column=Column(Vector(settings.EMBEDDING_DIMENSION)))
 
     chunk_metadata: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     created_at: datetime = Field(
