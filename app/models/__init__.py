@@ -1,6 +1,6 @@
-from .user import User
-from .document import Document, DocumentVersion, DocumentChunk
+from .document import Document, DocumentChunk, DocumentVersion
 from .job import ProcessingJob
+from .user import User
 
 __all__ = [
     "User",

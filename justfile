@@ -68,8 +68,19 @@ celery-stats:
 celery-purge:
     uv run celery -A app.config.celery purge -f
 
+lint:
+	uv run ruff check .
+
+lint-fix:
+	uv run ruff check . --fix
+
 format:
-    uv run python -m black .
+	uv run ruff format .
 
 format-check:
-    uv run python -m black --check .
+	uv run ruff format . --check
+
+# Run all checks (linting and formatting)
+check:
+	just lint
+	just format-check

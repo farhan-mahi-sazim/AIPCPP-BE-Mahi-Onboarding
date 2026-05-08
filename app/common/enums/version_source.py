@@ -1,6 +1,6 @@
 import enum
 
 
-class EVersionSource(str, enum.Enum):
+class EVersionSource(enum.StrEnum):
     AI = "ai"
     USER = "user"

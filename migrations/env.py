@@ -1,9 +1,10 @@
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
-
 from alembic import context
+from sqlalchemy import engine_from_config, pool
+from sqlmodel import SQLModel
+
+from app.config.settings import settings
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -40,7 +41,7 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = settings.DATABASE_URL_SYNC
+    url = settings.database_url_sync
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -60,7 +61,7 @@ def run_migrations_online() -> None:
 
     """
     section = config.get_section(config.config_ini_section, {})
-    section["sqlalchemy.url"] = settings.DATABASE_URL_SYNC
+    section["sqlalchemy.url"] = settings.database_url_sync
     connectable = engine_from_config(
         section,
         prefix="sqlalchemy.",

@@ -21,6 +21,7 @@ dependencies = [
     "redis>=7.4.0",
     "sqlmodel>=0.0.38",
     "uvicorn>=0.46.0",
+    "greenlet>=3.1.1",
 ]
 
 [dependency-groups]
@@ -29,6 +30,7 @@ dev = [
     "httpx>=0.28.1",
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3.0",
+    "ruff>=0.9.0",
 ]
 
 [tool.pytest.ini_options]
@@ -40,3 +42,11 @@ asyncio_default_fixture_loop_scope = "function"
 target-version = ['py312']
 line-length = 88
 include = '\.pyi?$'
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "C90"]
+ignore = ["E501"]  # Line length is handled by Black

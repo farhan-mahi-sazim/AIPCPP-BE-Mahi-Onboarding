@@ -1,4 +1,4 @@
-from .enums import EFileType, EVersionSource, EJobStatus, EPipelineStage
+from .enums import EFileType, EJobStatus, EPipelineStage, EVersionSource
 
 __all__ = [
     "EFileType",

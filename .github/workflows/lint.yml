@@ -19,3 +19,6 @@ jobs:
 
       - name: Check formatting with Black
         run: uv run black --check app/
+
+      - name: Lint with Ruff
+        run: uv run ruff check app/

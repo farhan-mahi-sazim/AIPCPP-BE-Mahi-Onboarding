@@ -20,9 +20,7 @@ class Settings(BaseSettings):
     S3_BUCKET_NAME: str = "aipcpp-uploads"
     S3_USE_SSL: bool = False
 
-    # AI / LiteLLM
-    LITELLM_MODEL: str = "gemini/gemini-2.5-flash"
-    LITELLM_EMBEDDING_MODEL: str = "gemini/gemini-embedding-2"
+    # Litellm / AI settings
     OPENAI_API_KEY: str | None = None
     GEMINI_API_KEY: str | None = None
 
@@ -38,7 +36,7 @@ class Settings(BaseSettings):
     MODEL_EMBEDDING_TIMEOUT_SECONDS: int = 20
 
     @property
-    def DATABASE_URL(self) -> str:
+    def database_url(self) -> str:
         return f"postgresql+asyncpg://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
 
     @property

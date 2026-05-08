@@ -1,5 +1,7 @@
 from sqlalchemy import select, delete
 from sqlalchemy.orm import Session
+from uuid import UUID
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.document import Document, DocumentVersion, DocumentChunk
 from app.models.job import ProcessingJob

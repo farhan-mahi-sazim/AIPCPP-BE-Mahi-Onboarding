@@ -1,13 +1,13 @@
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config.settings import settings
 from app.config.db import get_db_session
+from app.config.settings import settings
 from app.modules.healthcheck.constants import PROCESS_START
 from app.modules.healthcheck.helpers import check_liveness, check_postgres
 from app.modules.healthcheck.schema import (
@@ -39,7 +39,7 @@ async def health_check(
         status=overall,
         version=settings.APP_VERSION,
         description="AI-content processing pipeline",
-        timestamp=datetime.now(tz=timezone.utc),
+        timestamp=datetime.now(tz=UTC),
         uptime_seconds=round(time.monotonic() - PROCESS_START, 2),
         environment=settings.ENVIRONMENT,
         checks={"postgres": db_check, "liveness": liveness_check},
@@ -62,11 +62,11 @@ async def liveness(
     except Exception:
         return TLivenessResponse(
             status=EHealthStatus.FAIL,
-            timestamp=datetime.now(tz=timezone.utc),
+            timestamp=datetime.now(tz=UTC),
         )
     return TLivenessResponse(
         status=EHealthStatus.PASS,
-        timestamp=datetime.now(tz=timezone.utc),
+        timestamp=datetime.now(tz=UTC),
     )
 
 
