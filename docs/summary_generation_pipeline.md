@@ -4,29 +4,29 @@ This document details the background processing pipeline responsible for transfo
 
 ## Pipeline Architecture
 
-The pipeline is implemented as a **Celery Chain**, ensuring a sequential and reliable execution flow. Each stage depends on the successful completion of the previous one.
+The pipeline uses a **Celery Workflow** (Chain and Group), optimizing execution by running independent stages in parallel.
 
 ```mermaid
 graph TD
     A[File Uploaded] --> B(Stage 1: Text Extraction)
     B --> C{Success?}
-    C -- Yes --> D(Stage 2: AI Analysis)
-    C -- No --> E[Retry with Backoff]
-    D --> F{Success?}
-    F -- Yes --> G(Stage 3: Vector Embeddings)
-    F -- No --> H[Retry / Fallback Model]
-    G --> I{Success?}
-    I -- Yes --> J[Pipeline Complete]
-    I -- No --> K[Retry with Backoff]
-
+    C -- Yes --> D[Parallel Processing]
+    D --> E(Stage 2: AI Analysis)
+    D --> F(Stage 3: Vector Embeddings)
+    C -- No --> G[Retry with Backoff]
+    
+    E --> H{Complete?}
+    F --> H
+    H -- Yes --> I[Pipeline Complete]
+    
     subgraph "External Dependencies"
         L[MinIO / S3]
         M[Gemini API / LiteLLM]
     end
 
     B -.-> L
-    D -.-> M
-    G -.-> M
+    E -.-> M
+    F -.-> M
 ```
 
 ---

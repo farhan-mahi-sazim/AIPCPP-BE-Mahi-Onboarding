@@ -1,12 +1,11 @@
-from sqlalchemy import select, delete
-from sqlalchemy.orm import Session
 from uuid import UUID
 
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.models.document import Document, DocumentVersion, DocumentChunk
+from sqlalchemy.orm import Session
+
+from app.models.document import Document, DocumentChunk, DocumentVersion
 from app.models.job import ProcessingJob
-from uuid import UUID
-from typing import Optional
 
 # --- ASYNC REPOSITORIES (Used by FastAPI) ---
 
@@ -21,12 +20,12 @@ class DocumentRepository:
         await self.session.refresh(document)
         return document
 
-    async def get_by_id(self, document_id: UUID) -> Optional[Document]:
+    async def get_by_id(self, document_id: UUID) -> Document | None:
         return await self.session.get(Document, document_id)
 
     async def get_all_with_summaries(
         self,
-    ) -> list[tuple[Document, Optional[DocumentVersion]]]:
+    ) -> list[tuple[Document, DocumentVersion | None]]:
         """Fetch all documents with their latest AI version."""
         stmt = (
             select(Document, DocumentVersion)
@@ -46,7 +45,7 @@ class DocumentRepository:
 
     async def get_summary(
         self, document_id: UUID
-    ) -> Optional[tuple[Document, Optional[DocumentVersion]]]:
+    ) -> tuple[Document, DocumentVersion | None] | None:
         stmt = (
             select(Document, DocumentVersion)
             .join(
@@ -95,10 +94,10 @@ class ProcessingJobRepository:
         await self.session.refresh(job)
         return job
 
-    async def get_by_id(self, job_id: UUID) -> Optional[ProcessingJob]:
+    async def get_by_id(self, job_id: UUID) -> ProcessingJob | None:
         return await self.session.get(ProcessingJob, job_id)
 
-    async def get_by_document_id(self, document_id: UUID) -> Optional[ProcessingJob]:
+    async def get_by_document_id(self, document_id: UUID) -> ProcessingJob | None:
         stmt = select(ProcessingJob).where(ProcessingJob.document_id == document_id)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
@@ -117,7 +116,7 @@ class DocumentRepositorySync:
         self.session.refresh(document)
         return document
 
-    def get_by_id(self, document_id: UUID) -> Optional[Document]:
+    def get_by_id(self, document_id: UUID) -> Document | None:
         return self.session.get(Document, document_id)
 
 
@@ -156,10 +155,10 @@ class ProcessingJobRepositorySync:
         self.session.refresh(job)
         return job
 
-    def get_by_id(self, job_id: UUID) -> Optional[ProcessingJob]:
+    def get_by_id(self, job_id: UUID) -> ProcessingJob | None:
         return self.session.get(ProcessingJob, job_id)
 
-    def get_by_document_id(self, document_id: UUID) -> Optional[ProcessingJob]:
+    def get_by_document_id(self, document_id: UUID) -> ProcessingJob | None:
         stmt = select(ProcessingJob).where(ProcessingJob.document_id == document_id)
         result = self.session.execute(stmt)
         return result.scalar_one_or_none()

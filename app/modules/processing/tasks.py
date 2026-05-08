@@ -1,8 +1,9 @@
-import uuid
-from app.config.celery import celery_app
-from app.modules.processing.services import ProcessingService
-from app.config.db import SyncSessionLocal
 import logging
+import uuid
+
+from app.config.celery import celery_app
+from app.config.db import SyncSessionLocal
+from app.modules.processing.services import ProcessingService
 
 logger = logging.getLogger(__name__)
 

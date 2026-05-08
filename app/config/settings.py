@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     # Litellm / AI settings
     OPENAI_API_KEY: str | None = None
     GEMINI_API_KEY: str | None = None
+    LITELLM_MODEL: str = "gemini/gemini-2.5-flash"
+    LITELLM_EMBEDDING_MODEL: str = "gemini/gemini-embedding-2"
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -40,8 +42,8 @@ class Settings(BaseSettings):
         return f"postgresql+asyncpg://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
 
     @property
-    def DATABASE_URL_SYNC(self) -> str:
-        return f"postgresql://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+    def database_url_sync(self) -> str:
+        return f"postgresql+psycopg://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
 
 
 settings = Settings()

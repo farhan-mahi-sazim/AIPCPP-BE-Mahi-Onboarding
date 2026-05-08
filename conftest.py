@@ -1,23 +1,30 @@
 import asyncio
-import pytest
+from unittest.mock import MagicMock
+
 import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
 import sqlalchemy as sa
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlmodel import SQLModel
-from app.main import app
+
+from app.common.storage import get_storage_service
 from app.config.db import get_db_session
 from app.config.settings import settings
-from unittest.mock import MagicMock
-from app.common.storage import get_storage_service
+from app.main import app
 
 # Use a test database URL safely
-_url = sa.engine.url.make_url(settings.DATABASE_URL_SYNC)
+_url = sa.engine.url.make_url(settings.database_url_sync)
 if not _url.database.endswith("_test"):
     _url = _url.set(database=f"{_url.database}_test")
 
+# If using local dev port 5434, switch to test port 5433
+if _url.port == 5434:
+    _url = _url.set(port=5433)
+elif _url.port == 5432:  # Fallback for standard port
+    _url = _url.set(port=5433)
+
 TEST_DATABASE_URL = _url.render_as_string(hide_password=False).replace(
-    "postgresql://", "postgresql+asyncpg://"
+    "postgresql+psycopg://", "postgresql+asyncpg://"
 )
 
 
@@ -60,17 +67,30 @@ async def test_engine():
 
 @pytest_asyncio.fixture
 async def db_session(test_engine) -> AsyncSession:
-    Session = async_sessionmaker(
+    session_factory = async_sessionmaker(
         bind=test_engine, class_=AsyncSession, expire_on_commit=False
     )
-    async with Session() as session:
+    async with session_factory() as session:
         yield session
 
 
 @pytest_asyncio.fixture
 async def client(db_session) -> AsyncClient:
     mock_storage = MagicMock()
-    mock_storage.upload_file.side_effect = lambda file_obj, s3_key, content_type: s3_key
+    mock_storage.upload_file.side_effect = (
+        lambda file_obj, s3_key, content_type, max_size=None: s3_key
+    )
+
+    # Mock Celery tasks
+    import app.modules.content.services as services_module
+
+    original_trigger = services_module.ContentService._trigger_pipeline
+
+    async def mock_trigger(self, doc_id):
+        """Skip Celery pipeline in tests"""
+        pass
+
+    services_module.ContentService._trigger_pipeline = mock_trigger
 
     async def override_get_db_session():
         yield db_session
@@ -84,7 +104,24 @@ async def client(db_session) -> AsyncClient:
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://testserver"
     ) as ac:
-        ac.mock_storage = mock_storage  # Attach to client for assertions if needed
+        ac.mock_storage = mock_storage
         yield ac
 
+    services_module.ContentService._trigger_pipeline = original_trigger
     app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def mock_celery():
+    """Mock Celery tasks for all tests"""
+    import app.modules.content.services as services_module
+
+    original_trigger = services_module.ContentService._trigger_pipeline
+
+    async def mock_trigger(self, doc_id):
+        """Skip Celery pipeline in tests"""
+        pass
+
+    services_module.ContentService._trigger_pipeline = mock_trigger
+    yield
+    services_module.ContentService._trigger_pipeline = original_trigger

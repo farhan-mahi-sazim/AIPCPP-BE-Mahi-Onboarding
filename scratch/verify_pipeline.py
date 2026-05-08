@@ -1,14 +1,15 @@
 import asyncio
-import uuid
-import time
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.config.db import AsyncSessionLocal
-from app.modules.content.services import ContentService
-from app.modules.content.repositories import DocumentRepository, ProcessingJobRepository
-from app.common.storage import StorageService
-from app.common.enums.job_status import EJobStatus
-from fastapi import UploadFile
 import io
+import time
+import uuid
+
+from fastapi import UploadFile
+
+from app.common.enums.job_status import EJobStatus
+from app.common.storage import StorageService
+from app.config.db import AsyncSessionLocal
+from app.modules.content.repositories import ProcessingJobRepository
+from app.modules.content.services import ContentService
 
 
 async def verify_pipeline():
@@ -18,7 +19,6 @@ async def verify_pipeline():
     async with AsyncSessionLocal() as session:
         storage = StorageService()
         content_service = ContentService(session, storage)
-        job_repo = ProcessingJobRepository(session)
 
         # 1.1 Create Test User (to avoid FK violation)
         from app.models.user import User
@@ -62,8 +62,9 @@ async def verify_pipeline():
                     print(f"🎉 Job COMPLETED in {int(time.time() - start_time)}s!")
 
                     # 4. Check results
-                    from app.models.document import DocumentVersion
                     from sqlalchemy import select
+
+                    from app.models.document import DocumentVersion
 
                     stmt = select(DocumentVersion).where(
                         DocumentVersion.document_id == doc_id

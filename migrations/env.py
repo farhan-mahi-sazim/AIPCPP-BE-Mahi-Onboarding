@@ -15,9 +15,6 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-from sqlmodel import SQLModel
-from app.models import User, Document, DocumentVersion, DocumentChunk, ProcessingJob
-from app.config.settings import settings
 
 # add your model's MetaData object here
 # for 'autogenerate' support

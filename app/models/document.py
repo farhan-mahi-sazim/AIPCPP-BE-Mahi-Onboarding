@@ -1,12 +1,11 @@
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID, uuid4
-from sqlmodel import Field, SQLModel, Relationship, Column, JSON, DateTime
-from sqlalchemy import Text
-from sqlalchemy.dialects import postgresql
+
 import sqlalchemy as sa
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import Text
+from sqlalchemy.dialects import postgresql
 from sqlmodel import JSON, Column, DateTime, Field, Relationship, SQLModel
 
 from app.common.enums.file_type import EFileType
@@ -28,7 +27,7 @@ class Document(SQLModel, table=True):
     file_type: EFileType
     raw_text: str | None = Field(default=None, sa_column=Column(Text))
 
-    current_version_id: Optional[UUID] = Field(
+    current_version_id: UUID | None = Field(
         default=None,
         sa_column=Column(
             postgresql.UUID(as_uuid=True),

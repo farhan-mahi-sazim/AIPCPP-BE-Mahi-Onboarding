@@ -1,4 +1,7 @@
+import sys
+
 from celery import Celery
+
 from app.config.settings import settings
 
 celery_app = Celery(
@@ -17,6 +20,7 @@ celery_app.conf.update(
     enable_utc=True,
     task_track_started=True,
     task_time_limit=3600,  # 1 hour max per task
+    worker_pool="threads" if sys.platform == "darwin" else "prefork",
 )
 
 if __name__ == "__main__":

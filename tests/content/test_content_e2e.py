@@ -1,27 +1,24 @@
+import uuid
+
 import pytest
 from httpx import AsyncClient
+from sqlmodel import select
+
+from app.models.document import Document
 from tests.content.constants import (
-    DUMMY_USER_ID,
-    PDF_FILENAME,
-    PDF_CONTENT,
-    EXE_FILENAME,
     EXE_CONTENT,
-    TXT_FILENAME,
-    TXT_CONTENT,
+    EXE_FILENAME,
+    PDF_CONTENT,
+    PDF_FILENAME,
     SUCCESS_STATUS,
-    UNSUPPORTED_TYPE_ERROR,
     SUMMARY_NOT_FOUND_ERROR,
-    DOCUMENT_NOT_FOUND_ERROR,
-    FAILED_DELETE_ERROR,
+    UNSUPPORTED_TYPE_ERROR,
 )
 from tests.content.helpers import (
-    ensure_user_exists,
     create_document_with_summary,
     create_document_without_summary,
+    ensure_user_exists,
 )
-from sqlmodel import select
-from app.models.document import Document
-import uuid
 
 
 @pytest.mark.asyncio
@@ -105,7 +102,7 @@ class TestGetSummariesEndpoint:
         doc_with_summary, _ = await create_document_with_summary(
             db_session, filename="with_summary.pdf"
         )
-        doc_without_summary = await create_document_without_summary(
+        _doc_without_summary = await create_document_without_summary(
             db_session, filename="without_summary.txt"
         )
 

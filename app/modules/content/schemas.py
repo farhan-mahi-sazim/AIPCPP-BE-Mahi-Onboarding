@@ -1,7 +1,8 @@
-from pydantic import BaseModel, ConfigDict
-from uuid import UUID
 from datetime import datetime
-from typing import Optional, List
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict
+
 from app.common.enums.file_type import EFileType
 from app.common.enums.job_status import EJobStatus
 
@@ -37,8 +38,8 @@ class TUploadResponse(BaseModel):
 class TSummaryRead(BaseModel):
     document_id: UUID
     filename: str
-    summary: Optional[str] = None
-    tags: List[str] = []
+    summary: str | None = None
+    tags: list[str] = []
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

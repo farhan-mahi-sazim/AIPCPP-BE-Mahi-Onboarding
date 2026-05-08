@@ -1,7 +1,8 @@
 from collections.abc import AsyncGenerator
+
 from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.config.settings import settings
 
@@ -20,7 +21,7 @@ AsyncSessionLocal = async_sessionmaker(
 )
 
 sync_engine = create_engine(
-    settings.DATABASE_URL_SYNC,
+    settings.database_url_sync,
     echo=False,
     future=True,
 )

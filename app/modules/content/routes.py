@@ -1,3 +1,4 @@
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -6,14 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.storage import StorageService, get_storage_service
 from app.config.db import get_db_session
 from app.modules.content.constants import UPLOAD_ERROR_MESSAGE
-from app.modules.content.schemas import TUploadResponse
+from app.modules.content.schemas import TSummaryRead, TUploadResponse
 from app.modules.content.services import ContentService
-from app.modules.content.schemas import TUploadResponse, TSummaryRead
-from app.common.storage import get_storage_service, StorageService
-from app.modules.content.constants import UPLOAD_ERROR_MESSAGE
-from typing import List
-import uuid
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +19,7 @@ router = APIRouter()
 DUMMY_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
 
-@router.get("/summaries", response_model=List[TSummaryRead])
+@router.get("/summaries", response_model=list[TSummaryRead])
 async def get_all_summaries(
     db_session: AsyncSession = Depends(get_db_session),
     storage_service: StorageService = Depends(get_storage_service),
@@ -61,7 +56,7 @@ async def upload_document(
         return await service.upload_document(file, owner_id=DUMMY_USER_ID)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except Exception as e:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=UPLOAD_ERROR_MESSAGE,

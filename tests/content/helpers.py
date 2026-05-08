@@ -1,12 +1,14 @@
-from sqlmodel import select
+import uuid
+from datetime import UTC, datetime
+
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.models.user import User
-from app.models.document import Document, DocumentVersion
+from sqlmodel import select
+
 from app.common.enums.file_type import EFileType
 from app.common.enums.version_source import EVersionSource
+from app.models.document import Document, DocumentVersion
+from app.models.user import User
 from tests.content.constants import DUMMY_USER_ID, TEST_EMAIL, TEST_FULL_NAME
-import uuid
-from datetime import datetime, timezone
 
 
 async def ensure_user_exists(db_session: AsyncSession) -> User:
@@ -60,7 +62,7 @@ async def create_document_with_summary(
         version_number=1,
         source=EVersionSource.AI,
         data={"summary": summary_text, "tags": tags},
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     db_session.add(version)
     await db_session.flush()

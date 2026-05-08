@@ -1,27 +1,28 @@
-import uuid
-import logging
-import os
 import io
 import json
-from sqlalchemy.orm import Session
-from app.modules.content.repositories import (
-    DocumentRepositorySync,
-    ProcessingJobRepositorySync,
-    DocumentVersionRepositorySync,
-    DocumentChunkRepositorySync,
-)
-from app.common.storage import StorageService
-from app.common.enums.job_status import EJobStatus
-from app.common.enums.pipeline_stage import EPipelineStage
-from app.common.enums.file_type import EFileType
-from app.common.enums.version_source import EVersionSource
-from app.models.document import DocumentVersion, DocumentChunk
-from app.config.settings import settings
-from app.modules.processing.prompts import ANALYSIS_SYSTEM_PROMPT, ANALYSIS_USER_PROMPT
+import logging
+import uuid
+
 import litellm
-from pypdf import PdfReader
 import pytesseract
 from PIL import Image
+from pypdf import PdfReader
+from sqlalchemy.orm import Session
+
+from app.common.enums.file_type import EFileType
+from app.common.enums.job_status import EJobStatus
+from app.common.enums.pipeline_stage import EPipelineStage
+from app.common.enums.version_source import EVersionSource
+from app.common.storage import StorageService
+from app.config.settings import settings
+from app.models.document import DocumentChunk, DocumentVersion
+from app.modules.content.repositories import (
+    DocumentChunkRepositorySync,
+    DocumentRepositorySync,
+    DocumentVersionRepositorySync,
+    ProcessingJobRepositorySync,
+)
+from app.modules.processing.prompts import ANALYSIS_SYSTEM_PROMPT, ANALYSIS_USER_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +61,19 @@ class ProcessingService:
             for page in reader.pages:
                 extracted_text += page.extract_text() + "\n"
         elif doc.file_type == EFileType.IMAGE:
-            image = Image.open(io.BytesIO(file_content))
-            extracted_text = pytesseract.image_to_string(image)
+            try:
+                image = Image.open(io.BytesIO(file_content))
+                extracted_text = pytesseract.image_to_string(image)
+            except pytesseract.TesseractNotFoundError:
+                logger.warning(
+                    "Tesseract OCR not available for document %s. "
+                    "Install with: brew install tesseract",
+                    document_id,
+                )
+                extracted_text = f"[OCR unavailable for {doc.filename}]"
+            except Exception as e:
+                logger.error("Image OCR failed for document %s: %s", document_id, e)
+                extracted_text = f"[Image extraction failed: {str(e)[:100]}]"
         elif doc.file_type == EFileType.TEXT:
             extracted_text = file_content.decode("utf-8")
 
