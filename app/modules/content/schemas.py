@@ -40,6 +40,7 @@ class TSummaryRead(BaseModel):
     filename: str
     summary: str | None = None
     tags: list[str] = []
+    category: str | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

@@ -24,9 +24,8 @@ class DocumentRepository:
         return await self.session.get(Document, document_id)
 
     async def get_all_with_summaries(
-        self,
+        self, limit: int = 10, offset: int = 0
     ) -> list[tuple[Document, DocumentVersion | None]]:
-        """Fetch all documents with their latest AI version."""
         stmt = (
             select(Document, DocumentVersion)
             .join(
@@ -35,6 +34,8 @@ class DocumentRepository:
                 isouter=True,
             )
             .order_by(Document.created_at.desc())
+            .limit(limit)
+            .offset(offset)
         )
         result = await self.session.execute(stmt)
         return list(result.all())
@@ -64,6 +65,40 @@ class DocumentVersionRepository:
         self.session = session
 
     async def create(self, version: DocumentVersion) -> DocumentVersion:
+        self.session.add(version)
+        await self.session.flush()
+        await self.session.refresh(version)
+        return version
+
+    async def get_by_id(self, version_id: UUID) -> DocumentVersion | None:
+        return await self.session.get(DocumentVersion, version_id)
+
+    async def get_all_by_document_id(
+        self, document_id: UUID, limit: int = 10, offset: int = 0
+    ) -> list[DocumentVersion]:
+        stmt = (
+            select(DocumentVersion)
+            .where(DocumentVersion.document_id == document_id)
+            .order_by(DocumentVersion.version_number.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_latest_by_document_id(
+        self, document_id: UUID
+    ) -> DocumentVersion | None:
+        stmt = (
+            select(DocumentVersion)
+            .where(DocumentVersion.document_id == document_id)
+            .order_by(DocumentVersion.version_number.desc())
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def update(self, version: DocumentVersion) -> DocumentVersion:
         self.session.add(version)
         await self.session.flush()
         await self.session.refresh(version)

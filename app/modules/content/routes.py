@@ -1,7 +1,7 @@
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.storage import StorageService, get_storage_service
@@ -20,12 +20,14 @@ DUMMY_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
 
 @router.get("/summaries", response_model=list[TSummaryRead])
-async def get_all_summaries(
-    db_session: AsyncSession = Depends(get_db_session),
-    storage_service: StorageService = Depends(get_storage_service),
+async def get_summaries(
+    limit: int = Query(10, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    session: AsyncSession = Depends(get_db_session),
+    storage: StorageService = Depends(get_storage_service),
 ):
-    service = ContentService(db_session, storage_service)
-    return await service.get_all_summaries()
+    service = ContentService(session, storage)
+    return await service.get_all_summaries(limit=limit, offset=offset)
 
 
 @router.get("/summaries/{document_id}", response_model=TSummaryRead)

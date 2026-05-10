@@ -53,6 +53,16 @@ async def test_engine():
                 await conn.execute(sa.text("DROP TABLE IF EXISTS documents CASCADE;"))
                 await conn.execute(sa.text("DROP TABLE IF EXISTS users CASCADE;"))
 
+                # Also drop enum types to ensure they are recreated with updated members
+                await conn.execute(sa.text("DROP TYPE IF EXISTS efiletype CASCADE;"))
+                await conn.execute(
+                    sa.text("DROP TYPE IF EXISTS eversionsource CASCADE;")
+                )
+                await conn.execute(sa.text("DROP TYPE IF EXISTS ejobstatus CASCADE;"))
+                await conn.execute(
+                    sa.text("DROP TYPE IF EXISTS epipelinestage CASCADE;")
+                )
+
                 # Create all tables
                 await conn.run_sync(SQLModel.metadata.create_all)
             break

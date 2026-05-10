@@ -133,6 +133,7 @@ class ProcessingService:
                     data={
                         "summary": analysis_data.get("summary"),
                         "tags": analysis_data.get("tags"),
+                        "category": analysis_data.get("category"),
                     },
                     source=EVersionSource.AI,
                 )
