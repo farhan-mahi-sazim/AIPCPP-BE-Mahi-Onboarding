@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
@@ -38,6 +38,69 @@ class DocumentRepository:
         )
         result = await self.session.execute(stmt)
         return list(result.all())
+
+    async def get_all_summaries(
+        self,
+        offset: int = 0,
+        limit: int = 20,
+        sort_by: str = "-created_at",
+        owner_id: UUID | None = None,
+        search_query: str | None = None,
+    ) -> tuple[list[tuple[Document, DocumentVersion | None]], int]:
+        """
+        Fetch paginated documents with their latest AI version.
+
+        Args:
+            offset: Number of records to skip
+            limit: Maximum number of records to return
+            sort_by: Field to sort by (prefix with - for descending)
+            owner_id: Filter by owner ID (optional)
+            search_query: Search in filename (optional)
+
+        Returns:
+            Tuple of (paginated results, total count)
+        """
+
+        stmt = select(Document, DocumentVersion).join(
+            DocumentVersion,
+            Document.current_version_id == DocumentVersion.id,
+            isouter=True,
+        )
+
+        if owner_id:
+            stmt = stmt.where(Document.owner_id == owner_id)
+
+        if search_query:
+            search_pattern = f"%{search_query}%"
+            stmt = stmt.where(Document.filename.ilike(search_pattern))
+
+        count_stmt = select(func.count()).select_from(Document)
+        if owner_id:
+            count_stmt = count_stmt.where(Document.owner_id == owner_id)
+        if search_query:
+            search_pattern = f"%{search_query}%"
+            count_stmt = count_stmt.where(Document.filename.ilike(search_pattern))
+
+        count_result = await self.session.execute(count_stmt)
+        total = count_result.scalar() or 0
+
+        if sort_by.startswith("-"):
+            sort_field = sort_by[1:]
+            sort_desc = True
+        else:
+            sort_field = sort_by
+            sort_desc = False
+
+        sort_column = getattr(Document, sort_field, Document.created_at)
+        if sort_desc:
+            stmt = stmt.order_by(desc(sort_column))
+        else:
+            stmt = stmt.order_by(sort_column)
+
+        stmt = stmt.offset(offset).limit(limit)
+
+        result = await self.session.execute(stmt)
+        return list(result.all()), total
 
     async def delete_summary(self, document: Document) -> None:
         await self.session.delete(document)

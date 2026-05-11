@@ -1,6 +1,7 @@
 import logging
 import os
 import uuid
+from typing import TYPE_CHECKING
 
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +14,14 @@ from app.models.document import Document
 from app.models.job import ProcessingJob
 from app.modules.content.constants import MAX_FILE_SIZE
 from app.modules.content.repositories import DocumentRepository, ProcessingJobRepository
-from app.modules.content.schemas import TSummaryRead, TUploadResponse
+from app.modules.content.schemas import (
+    TPaginatedSummariesResponse,
+    TSummaryRead,
+    TUploadResponse,
+)
+
+if TYPE_CHECKING:
+    from app.models.document import DocumentVersion
 
 logger = logging.getLogger(__name__)
 
@@ -156,23 +164,58 @@ class ContentService:
 
             raise e
 
-    async def get_all_summaries(self) -> list[TSummaryRead]:
-        """Fetch all documents with their latest AI summary."""
-        rows = await self.document_repo.get_all_with_summaries()
+    async def get_all_summaries(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "-created_at",
+        owner_id: uuid.UUID | None = None,
+        search_query: str | None = None,
+    ) -> "TPaginatedSummariesResponse":
+        """
+        Fetch paginated documents with their latest AI summary.
 
-        summaries = []
-        for doc, version in rows:
-            summaries.append(
-                TSummaryRead(
-                    document_id=doc.id,
-                    filename=doc.filename,
-                    summary=version.data.get("summary") if version else None,
-                    tags=version.data.get("tags", []) if version else [],
-                    created_at=doc.created_at,
-                )
-            )
+        Args:
+            page: Page number (1-indexed, default: 1)
+            page_size: Items per page (default: 20, max: 100)
+            sort_by: Field to sort by (prefix with - for descending)
+            owner_id: Filter by owner ID (optional)
+            search_query: Search in filename (optional)
 
-        return summaries
+        Returns:
+            Paginated response with summaries and metadata
+        """
+
+        offset = (page - 1) * page_size
+
+        rows, total = await self.document_repo.get_all_summaries(
+            offset=offset,
+            limit=page_size,
+            sort_by=sort_by,
+            owner_id=owner_id,
+            search_query=search_query,
+        )
+
+        summaries = [self._build_summary_read(doc, version) for doc, version in rows]
+
+        return TPaginatedSummariesResponse.create(
+            data=summaries, total=total, page=page, page_size=page_size
+        )
+
+    @staticmethod
+    def _build_summary_read(
+        doc: "Document", version: "DocumentVersion | None"
+    ) -> TSummaryRead:
+        """Helper method to build TSummaryRead from Document and DocumentVersion."""
+        return TSummaryRead(
+            document_id=doc.id,
+            filename=doc.filename,
+            file_type=doc.file_type,
+            summary=version.data.get("summary") if version else None,
+            tags=version.data.get("tags", []) if version else [],
+            created_at=doc.created_at,
+            updated_at=doc.updated_at,
+        )
 
     async def get_summary(self, document_id: uuid.UUID) -> TSummaryRead | None:
         row = await self.document_repo.get_summary(document_id)
@@ -181,13 +224,7 @@ class ContentService:
             return None
 
         doc, version = row
-        return TSummaryRead(
-            document_id=doc.id,
-            filename=doc.filename,
-            summary=version.data.get("summary") if version else None,
-            tags=version.data.get("tags", []) if version else [],
-            created_at=doc.created_at,
-        )
+        return self._build_summary_read(doc, version)
 
     async def delete_document(self, document_id: uuid.UUID) -> None:
         doc = await self.document_repo.get_by_id(document_id)
