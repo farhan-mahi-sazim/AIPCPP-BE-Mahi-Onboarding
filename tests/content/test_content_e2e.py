@@ -75,13 +75,14 @@ class TestGetSummariesEndpoint:
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 2
-        assert data[0]["filename"] == doc2.filename  # Most recent first
-        assert data[0]["summary"] == "Second summary"
-        assert data[0]["tags"] == ["urgent"]
-        assert data[1]["filename"] == doc1.filename
-        assert data[1]["summary"] == "First summary"
-        assert data[1]["tags"] == ["important", "reviewed"]
+        assert data["total"] == 2
+        assert len(data["data"]) == 2
+        assert data["data"][0]["filename"] == doc2.filename  # Most recent first
+        assert data["data"][0]["summary"] == "Second summary"
+        assert data["data"][0]["tags"] == ["urgent"]
+        assert data["data"][1]["filename"] == doc1.filename
+        assert data["data"][1]["summary"] == "First summary"
+        assert data["data"][1]["tags"] == ["important", "reviewed"]
 
     async def test_get_summaries_empty(self, client: AsyncClient, db_session):
         """Should return empty list when no summaries exist."""
@@ -91,7 +92,8 @@ class TestGetSummariesEndpoint:
 
         assert response.status_code == 200
         data = response.json()
-        assert data == []
+        assert data["total"] == 0
+        assert data["data"] == []
 
     async def test_get_summaries_with_documents_without_summaries(
         self, client: AsyncClient, db_session
@@ -110,10 +112,16 @@ class TestGetSummariesEndpoint:
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 2
+        assert data["total"] == 2
+        assert len(data["data"]) == 2
         # Find the one without summary
         item_without = next(
-            (item for item in data if item["filename"] == "without_summary.txt"), None
+            (
+                item
+                for item in data["data"]
+                if item["filename"] == "without_summary.txt"
+            ),
+            None,
         )
         assert item_without is not None
         assert item_without["summary"] is None
