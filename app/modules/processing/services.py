@@ -2,6 +2,8 @@ import io
 import json
 import logging
 import uuid
+import zipfile
+from xml.etree import ElementTree
 
 import litellm
 import pytesseract
@@ -15,7 +17,8 @@ from app.common.enums.pipeline_stage import EPipelineStage
 from app.common.enums.version_source import EVersionSource
 from app.common.storage import StorageService
 from app.config.settings import settings
-from app.models.document import DocumentChunk, DocumentVersion
+from app.models.document import Document, DocumentChunk, DocumentVersion
+from app.models.job import ProcessingJob
 from app.modules.content.repositories import (
     DocumentChunkRepositorySync,
     DocumentRepositorySync,
@@ -55,11 +58,28 @@ class ProcessingService:
 
         file_content = self.storage.get_file_content(doc.s3_key)
 
+        try:
+            extracted_text = self._get_extracted_text(doc, file_content)
+        except ValueError:
+            if job:
+                job.status = EJobStatus.FAILED
+                job.stage = EPipelineStage.PERSISTENCE
+                self.session.commit()
+            raise
+
+        doc.raw_text = extracted_text
+        self.session.commit()
+
+        logger.info("Extraction completed for document %s", document_id)
+        return str(document_id)
+
+    def _get_extracted_text(self, doc: Document, file_content: bytes) -> str:
+        """Helper to extract text based on document file type."""
         extracted_text = ""
         if doc.file_type == EFileType.PDF:
             reader = PdfReader(io.BytesIO(file_content))
             for page in reader.pages:
-                extracted_text += page.extract_text() + "\n"
+                extracted_text += (page.extract_text() or "") + "\n"
         elif doc.file_type == EFileType.IMAGE:
             try:
                 image = Image.open(io.BytesIO(file_content))
@@ -68,20 +88,46 @@ class ProcessingService:
                 logger.warning(
                     "Tesseract OCR not available for document %s. "
                     "Install with: brew install tesseract",
-                    document_id,
+                    doc.id,
                 )
                 extracted_text = f"[OCR unavailable for {doc.filename}]"
             except Exception as e:
-                logger.error("Image OCR failed for document %s: %s", document_id, e)
+                logger.error("Image OCR failed for document %s: %s", doc.id, e)
                 extracted_text = f"[Image extraction failed: {str(e)[:100]}]"
         elif doc.file_type == EFileType.TEXT:
             extracted_text = file_content.decode("utf-8")
+        elif doc.file_type == EFileType.DOCX:
+            extracted_text = self._extract_docx_text(file_content)
+        else:
+            raise ValueError(f"Unsupported file type for extraction: {doc.file_type}")
 
-        doc.raw_text = extracted_text
-        self.session.commit()
+        return extracted_text
 
-        logger.info("Extraction completed for document %s", document_id)
-        return str(document_id)
+    def _extract_docx_text(self, file_content: bytes) -> str:
+        try:
+            with zipfile.ZipFile(io.BytesIO(file_content)) as docx_zip:
+                xml_bytes = docx_zip.read("word/document.xml")
+        except KeyError as e:
+            raise ValueError("DOCX document.xml not found") from e
+        except zipfile.BadZipFile as e:
+            raise ValueError("Invalid DOCX file") from e
+
+        root = ElementTree.fromstring(xml_bytes)
+        namespaces = {
+            "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+        }
+
+        paragraphs: list[str] = []
+        for paragraph in root.findall(".//w:p", namespaces):
+            texts = [
+                node.text
+                for node in paragraph.findall(".//w:t", namespaces)
+                if node.text
+            ]
+            if texts:
+                paragraphs.append("".join(texts))
+
+        return "\n".join(paragraphs)
 
     def process_ai_analysis(self, document_id: uuid.UUID) -> str:
         doc = self.doc_repo.get_by_id(document_id)
@@ -195,7 +241,7 @@ class ProcessingService:
                 response = litellm.embedding(
                     model=model_name,
                     input=text_chunks,
-                    timeout=settings.MODEL_EMBEDDING_TIMEOUT_SECONDS,  # 20 second timeout
+                    timeout=settings.MODEL_EMBEDDING_TIMEOUT_SECONDS,
                 )
 
                 embeddings = [r["embedding"] for r in response.data]
@@ -214,8 +260,7 @@ class ProcessingService:
                 self.chunk_repo.create_many(db_chunks)
 
                 if job:
-                    job.status = EJobStatus.COMPLETED
-                    job.stage = EPipelineStage.PERSISTENCE
+                    job.stage = EPipelineStage.EMBEDDING
 
                 self.session.commit()
 
@@ -235,3 +280,90 @@ class ProcessingService:
 
         logger.error("All embedding models failed for %s", document_id)
         raise last_exception
+
+    def _mark_job_failed(self, job: ProcessingJob | None, reason: str) -> None:
+        """Mark job as FAILED and commit changes."""
+        if job:
+            job.status = EJobStatus.FAILED
+            job.stage = EPipelineStage.PERSISTENCE
+        self.session.commit()
+        logger.error("Job finalization failed: %s", reason)
+
+    def _validate_pipeline_outputs(
+        self, doc: Document, document_id: uuid.UUID
+    ) -> tuple[int, uuid.UUID]:
+        """
+        Validate all pipeline outputs exist.
+
+        Returns:
+            Tuple of (chunk_count, version_id)
+
+        Raises:
+            ValueError: If any validation fails
+        """
+        if not doc.raw_text:
+            raise ValueError(f"Document {document_id} has no extracted text")
+
+        if not doc.current_version_id:
+            raise ValueError(f"Document {document_id} has no AI analysis version")
+
+        version = self.version_repo.get_by_id(doc.current_version_id)
+        if not version or not version.data.get("summary"):
+            raise ValueError(f"Document {document_id} version missing summary data")
+
+        chunk_count = self.chunk_repo.count_by_document_id(document_id)
+        if chunk_count == 0:
+            raise ValueError(f"Document {document_id} has no embeddings")
+
+        return chunk_count, doc.current_version_id
+
+    def validate_and_finalize_job(self, document_id: uuid.UUID) -> str:
+        """
+        Stage 4: Validate all outputs exist and mark job as COMPLETED.
+
+        This is a synchronization point that ensures both parallel tasks
+        (AI Analysis and Embeddings) completed successfully before marking
+        the job as complete.
+
+        Validates:
+        - Document has extracted text (extraction succeeded)
+        - Document has a current version (analysis succeeded)
+        - Document has embeddings (embedding generation succeeded)
+
+        Args:
+            document_id: UUID of the document to finalize
+
+        Returns:
+            str: document_id as string
+
+        Raises:
+            ValueError: If any critical validation fails
+        """
+        doc = self.doc_repo.get_by_id(document_id)
+        if not doc:
+            raise ValueError(f"Document {document_id} not found")
+
+        job = self.job_repo.get_by_document_id(document_id)
+
+        try:
+            chunk_count, version_id = self._validate_pipeline_outputs(doc, document_id)
+        except ValueError as e:
+            self._mark_job_failed(job, str(e))
+            raise
+
+        # All validations passed - mark as COMPLETED
+        if job:
+            job.status = EJobStatus.COMPLETED
+            job.stage = EPipelineStage.PERSISTENCE
+
+        self.session.commit()
+
+        logger.info(
+            "Pipeline validation and finalization completed for document %s. "
+            "Chunks: %d, Version ID: %s",
+            document_id,
+            chunk_count,
+            version_id,
+        )
+
+        return str(document_id)

@@ -45,6 +45,8 @@ class ContentService:
             "jpeg": EFileType.IMAGE,
             "png": EFileType.IMAGE,
             "txt": EFileType.TEXT,
+            "docx": EFileType.DOCX,
+            "doc": EFileType.DOC,
         }
         if extension not in extension_map:
             raise ValueError(f"Unsupported file type: {extension}")
@@ -89,12 +91,14 @@ class ContentService:
                 analyze_content_task,
                 extract_text_task,
                 generate_embeddings_task,
+                validate_and_finalize_job_task,
             )
 
             # Optimization: Parallelize Analysis and Embedding after Extraction
             processing_pipeline = chain(
                 extract_text_task.s(str(document_id)),
                 group(analyze_content_task.s(), generate_embeddings_task.s()),
+                validate_and_finalize_job_task.s(),
             )
             processing_pipeline.apply_async()
             logger.info("Background pipeline triggered for document %s", document_id)

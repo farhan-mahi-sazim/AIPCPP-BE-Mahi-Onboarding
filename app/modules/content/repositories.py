@@ -193,6 +193,9 @@ class DocumentVersionRepositorySync:
         self.session.refresh(version)
         return version
 
+    def get_by_id(self, version_id: UUID) -> DocumentVersion | None:
+        return self.session.get(DocumentVersion, version_id)
+
 
 class DocumentChunkRepositorySync:
     def __init__(self, session: Session) -> None:
@@ -206,6 +209,15 @@ class DocumentChunkRepositorySync:
     def delete_by_document_id(self, document_id: UUID) -> None:
         stmt = delete(DocumentChunk).where(DocumentChunk.document_id == document_id)
         self.session.execute(stmt)
+
+    def count_by_document_id(self, document_id: UUID) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(DocumentChunk)
+            .where(DocumentChunk.document_id == document_id)
+        )
+        result = self.session.execute(stmt)
+        return int(result.scalar_one())
 
 
 class ProcessingJobRepositorySync:
