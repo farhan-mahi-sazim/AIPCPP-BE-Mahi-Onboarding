@@ -32,7 +32,84 @@ class ContentService:
         self.document_repo = DocumentRepository(session)
         self.job_repo = ProcessingJobRepository(session)
 
-    async def upload_document(self, file, owner_id: uuid.UUID) -> TUploadResponse:
+    @staticmethod
+    def _generate_s3_key(owner_id: uuid.UUID, file_id: uuid.UUID, filename: str) -> str:
+        return f"{owner_id}/{file_id}/{filename}"
+
+    def _get_file_type(self, filename: str) -> EFileType:
+        extension = os.path.splitext(filename)[1].lower().lstrip(".")
+        extension_map = {
+            "pdf": EFileType.PDF,
+            "jpg": EFileType.IMAGE,
+            "jpeg": EFileType.IMAGE,
+            "png": EFileType.IMAGE,
+            "txt": EFileType.TEXT,
+            "docx": EFileType.DOCX,
+            "doc": EFileType.DOC,
+        }
+        if extension not in extension_map:
+            raise ValueError(f"Unsupported file type: {extension}")
+        return extension_map[extension]
+
+    def _validate_file_size_early(self, file: UploadFile) -> None:
+        content_length = None
+        try:
+            headers = getattr(file, "headers", None)
+            if headers:
+                content_length = (
+                    headers.get("content-length")
+                    if isinstance(headers, dict)
+                    else getattr(headers, "get", lambda x: None)("content-length")
+                )
+        except Exception as e:
+            logger.debug("Could not read headers from file: %s", e)
+
+        if content_length:
+            try:
+                file_size = int(content_length)
+                if file_size > MAX_FILE_SIZE:
+                    raise ValueError("File too large. Maximum size is 50MB.")
+            except ValueError as e:
+                if "Maximum size" in str(e):
+                    raise
+                logger.warning(
+                    "Could not parse Content-Length for %s, will validate during upload",
+                    file.filename,
+                )
+        else:
+            logger.debug(
+                "Content-Length header missing or empty for %s. Size validation during upload.",
+                file.filename,
+            )
+
+    async def _trigger_pipeline(self, document_id: uuid.UUID) -> None:
+        try:
+            from celery import chain, group
+
+            from app.modules.processing.tasks import (
+                analyze_content_task,
+                extract_text_task,
+                generate_embeddings_task,
+                validate_and_finalize_job_task,
+            )
+
+            # Optimization: Parallelize Analysis and Embedding after Extraction
+            processing_pipeline = chain(
+                extract_text_task.s(str(document_id)),
+                group(analyze_content_task.s(), generate_embeddings_task.s()),
+                validate_and_finalize_job_task.s(),
+            )
+            processing_pipeline.apply_async()
+            logger.info("Background pipeline triggered for document %s", document_id)
+        except ImportError:
+            logger.debug("Celery tasks not yet implemented, skipping pipeline")
+
+    async def upload_document(
+        self, file: UploadFile, owner_id: uuid.UUID
+    ) -> TUploadResponse:
+        file_type = self._get_file_type(file.filename)
+        self._validate_file_size_early(file)
+
         file_id = uuid.uuid4()
         extension = file.filename.split(".")[-1].upper()
 

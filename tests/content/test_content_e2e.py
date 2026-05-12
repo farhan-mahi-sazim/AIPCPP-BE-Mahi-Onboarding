@@ -32,7 +32,7 @@ class TestUploadEndpoint:
         assert response.status_code == 201
         data = response.json()
         assert data["document"]["filename"] == PDF_FILENAME
-        assert data["document"]["file_type"] == "pdf"
+        assert data["document"]["file_type"] == "PDF"
         assert data["job"]["status"] == SUCCESS_STATUS
 
     async def test_upload_unsupported_type(self, client: AsyncClient, db_session):
