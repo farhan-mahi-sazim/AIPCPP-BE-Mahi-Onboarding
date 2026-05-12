@@ -1,5 +1,6 @@
 import uuid
 
+from app.common.enums.file_type import EFileType
 from app.common.enums.version_source import EVersionSource
 from app.models.document import Document, DocumentVersion
 from tests.content.helpers import ensure_user_exists
@@ -13,7 +14,7 @@ class TestVersionsE2E:
             owner_id=user.id,
             filename="test.txt",
             s3_key="key",
-            file_type="text",
+            file_type=EFileType.TEXT,
         )
         db_session.add(doc)
         await db_session.flush()
@@ -42,7 +43,7 @@ class TestVersionsE2E:
             owner_id=user.id,
             filename="test.txt",
             s3_key="key",
-            file_type="text",
+            file_type=EFileType.TEXT,
         )
         db_session.add(doc)
         await db_session.flush()
@@ -74,7 +75,7 @@ class TestVersionsE2E:
             owner_id=user.id,
             filename="test.txt",
             s3_key="key",
-            file_type="text",
+            file_type=EFileType.TEXT,
         )
         db_session.add(doc)
         await db_session.flush()
@@ -100,7 +101,7 @@ class TestVersionsE2E:
             owner_id=user.id,
             filename="test.txt",
             s3_key="key",
-            file_type="text",
+            file_type=EFileType.TEXT,
         )
         db_session.add(doc)
         await db_session.flush()
@@ -115,7 +116,10 @@ class TestVersionsE2E:
         await db_session.commit()
 
         response = await client.delete(f"/api/v1/versions/version/{v1.id}")
-        assert response.status_code == 204
+        assert response.status_code == 200
+        
+        assert "message" in response.json()
+        assert response.json()["message"] == "Version deleted successfully"
 
         # Verify gone
         check = await client.get(f"/api/v1/versions/{doc.id}/timeline")
@@ -128,7 +132,7 @@ class TestVersionsE2E:
             owner_id=user.id,
             filename="test.txt",
             s3_key="key",
-            file_type="text",
+            file_type=EFileType.TEXT,
         )
         db_session.add(doc)
         await db_session.flush()

@@ -1,10 +1,11 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.db import get_db_session
 from app.modules.versions.schemas import (
+    TMessageResponse,
     TPaginatedResponse,
     TVersionOverride,
     TVersionRead,
@@ -64,7 +65,8 @@ async def edit_user_version(
 
 @router.delete(
     "/version/{version_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=TMessageResponse,
+    status_code=status.HTTP_200_OK,
     summary="Delete a human-generated version",
 )
 async def delete_version(
@@ -75,4 +77,4 @@ async def delete_version(
     dummy_user_id = UUID("00000000-0000-0000-0000-000000000000")
     service = VersionService(session)
     await service.delete_version(version_id, dummy_user_id)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    return TMessageResponse(message="Version deleted successfully")

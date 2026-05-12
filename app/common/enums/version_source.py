@@ -2,5 +2,5 @@ import enum
 
 
 class EVersionSource(enum.StrEnum):
-    AI = "ai"
-    HUMAN = "human"
+    AI = "AI"
+    HUMAN = "HUMAN"

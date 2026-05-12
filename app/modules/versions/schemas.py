@@ -42,3 +42,7 @@ class TPaginatedResponse[T](BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class TMessageResponse(BaseModel):
+    message: str

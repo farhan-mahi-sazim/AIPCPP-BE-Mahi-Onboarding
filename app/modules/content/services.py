@@ -1,7 +1,9 @@
 import logging
+import os
 import uuid
 from typing import TYPE_CHECKING
 
+from fastapi import UploadFile
 from fastapi.concurrency import run_in_threadpool
 
 from app.common.enums.file_type import EFileType
@@ -11,6 +13,7 @@ from app.models.document import Document
 from app.models.job import ProcessingJob
 from app.modules.content.constants import (
     INVALID_FILE_TYPE_MESSAGE,
+    MAX_FILE_SIZE,
 )
 from app.modules.content.repositories import DocumentRepository, ProcessingJobRepository
 from app.modules.content.schemas import (
@@ -83,6 +86,7 @@ class ContentService:
             )
 
     async def _trigger_pipeline(self, document_id: uuid.UUID) -> None:
+        """Triggers the background processing pipeline for a document."""
         try:
             from celery import chain, group
 
@@ -94,20 +98,24 @@ class ContentService:
             )
 
             # Optimization: Parallelize Analysis and Embedding after Extraction
+            # Finalize task ensures synchronization and state correctness
             processing_pipeline = chain(
                 extract_text_task.s(str(document_id)),
                 group(analyze_content_task.s(), generate_embeddings_task.s()),
-                validate_and_finalize_job_task.s(),
+                validate_and_finalize_job_task.s(document_id_str=str(document_id)),
             )
             processing_pipeline.apply_async()
             logger.info("Background pipeline triggered for document %s", document_id)
         except ImportError:
             logger.debug("Celery tasks not yet implemented, skipping pipeline")
+        except Exception as e:
+            logger.error(
+                "Failed to trigger pipeline for document %s: %s", document_id, e
+            )
 
     async def upload_document(
         self, file: UploadFile, owner_id: uuid.UUID
     ) -> TUploadResponse:
-        file_type = self._get_file_type(file.filename)
         self._validate_file_size_early(file)
 
         file_id = uuid.uuid4()
@@ -174,26 +182,6 @@ class ContentService:
                 )
 
             raise e
-
-    async def _trigger_pipeline(self, document_id: uuid.UUID) -> None:
-        try:
-            from celery import chain, group
-
-            from app.modules.processing.tasks import (
-                analyze_content_task,
-                extract_text_task,
-                generate_embeddings_task,
-            )
-
-            # Optimization: Parallelize Analysis and Embedding after Extraction
-            processing_pipeline = chain(
-                extract_text_task.s(str(document_id)),
-                group(analyze_content_task.s(), generate_embeddings_task.s()),
-            )
-            processing_pipeline.apply_async()
-            logger.info("Background pipeline triggered for document %s", document_id)
-        except ImportError:
-            logger.debug("Celery tasks not yet implemented, skipping pipeline")
 
     async def get_all_summaries(
         self,

@@ -2,6 +2,7 @@ import uuid
 
 import pytest
 
+from app.common.enums.file_type import EFileType
 from app.common.enums.version_source import EVersionSource
 from app.models.document import Document, DocumentVersion
 from app.modules.versions.schemas import TVersionOverride, TVersionUpdate
@@ -34,7 +35,7 @@ class TestVersionService:
             owner_id=sample_user.id,
             filename="test.txt",
             s3_key="key",
-            file_type="text",
+            file_type=EFileType.TEXT,
         )
         db_session.add(doc)
         await db_session.flush()
