@@ -117,7 +117,7 @@ class TestVersionsE2E:
 
         response = await client.delete(f"/api/v1/versions/version/{v1.id}")
         assert response.status_code == 200
-        
+
         assert "message" in response.json()
         assert response.json()["message"] == "Version deleted successfully"
 

@@ -235,7 +235,6 @@ class ContentService:
             summary=version.data.get("summary") if version else None,
             category=version.data.get("category") if version else None,
             tags=version.data.get("tags", []) if version else [],
-            category=version.data.get("category") if version else None,
             created_at=doc.created_at,
             updated_at=doc.updated_at,
         )
