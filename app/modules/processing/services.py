@@ -7,6 +7,7 @@ from xml.etree import ElementTree
 
 import litellm
 import pytesseract
+import textract
 from PIL import Image
 from pypdf import PdfReader
 from sqlalchemy.orm import Session
@@ -98,6 +99,8 @@ class ProcessingService:
             extracted_text = file_content.decode("utf-8")
         elif doc.file_type == EFileType.DOCX:
             extracted_text = self._extract_docx_text(file_content)
+        elif doc.file_type == EFileType.DOC:
+            extracted_text = self._extract_doc_text(file_content)
         else:
             raise ValueError(f"Unsupported file type for extraction: {doc.file_type}")
 
@@ -128,6 +131,26 @@ class ProcessingService:
                 paragraphs.append("".join(texts))
 
         return "\n".join(paragraphs)
+
+    def _extract_doc_text(self, file_content: bytes) -> str:
+        if file_content[:4] == b"PK\x03\x04":
+            return self._extract_docx_text(file_content)
+
+        import os
+        import tempfile
+
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".doc", delete=False) as tmp:
+                tmp.write(file_content)
+                tmp_path = tmp.name
+
+            try:
+                text = textract.process(tmp_path, extension="doc")
+                return text.decode("utf-8")
+            finally:
+                os.unlink(tmp_path)
+        except Exception as e:
+            raise ValueError(f"DOC extraction failed: {str(e)}") from e
 
     def process_ai_analysis(self, document_id: uuid.UUID) -> str:
         doc = self.doc_repo.get_by_id(document_id)
@@ -179,6 +202,7 @@ class ProcessingService:
                     data={
                         "summary": analysis_data.get("summary"),
                         "tags": analysis_data.get("tags"),
+                        "category": analysis_data.get("category"),
                     },
                     source=EVersionSource.AI,
                 )

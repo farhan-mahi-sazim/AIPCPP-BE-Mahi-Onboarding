@@ -2,11 +2,57 @@ import logging
 import uuid
 from typing import Any
 
+from celery import Task
+
+from app.common.enums.job_status import EJobStatus
+from app.common.enums.pipeline_stage import EPipelineStage
 from app.config.celery import celery_app
 from app.config.db import SyncSessionLocal
 from app.modules.processing.services import ProcessingService
 
 logger = logging.getLogger(__name__)
+
+
+def _mark_job_failed_on_failure(
+    task: Task, exc: Exception, *args: Any, **kwargs: Any
+) -> None:
+    """Callback to mark job as FAILED when a task fails after all retries."""
+    retries = task.request.retries
+    max_retries = task.max_retries
+    if retries < max_retries:
+        logger.debug(
+            "Task %s still has retries (%d/%d), not marking failed",
+            task.name,
+            retries,
+            max_retries,
+        )
+        return
+
+    document_id_str = args[0] if args else kwargs.get("document_id_str")
+    if not document_id_str:
+        logger.error("No document_id_str provided to failure callback")
+        return
+    try:
+        document_id = uuid.UUID(document_id_str)
+    except (ValueError, TypeError):
+        logger.error("Invalid document_id_str: %s", document_id_str)
+        return
+
+    with SyncSessionLocal() as session:
+        try:
+            from app.modules.processing.repositories import ProcessingJobRepository
+
+            job_repo = ProcessingJobRepository(session)
+            job = job_repo.get_by_document_id(document_id)
+            if job and job.status != EJobStatus.COMPLETED:
+                job.status = EJobStatus.FAILED
+                job.stage = EPipelineStage.PERSISTENCE
+                session.commit()
+                logger.info(
+                    "Marked job FAILED after task exhausted retries: %s", document_id
+                )
+        except Exception as e:
+            logger.error("Failed to mark job FAILED for %s: %s", document_id, e)
 
 
 @celery_app.task(
@@ -16,6 +62,7 @@ logger = logging.getLogger(__name__)
     retry_backoff=True,
     retry_backoff_max=600,
     retry_jitter=True,
+    on_failure=_mark_job_failed_on_failure,
 )
 def extract_text_task(self: Any, document_id_str: str) -> str:
     """Stage 1: Text Extraction from S3 file (Sync)."""
@@ -38,6 +85,7 @@ def extract_text_task(self: Any, document_id_str: str) -> str:
     retry_backoff=True,
     retry_backoff_max=900,
     retry_jitter=True,
+    on_failure=_mark_job_failed_on_failure,
 )
 def analyze_content_task(self: Any, document_id_str: str) -> str:
     """Stage 2: AI Analysis (Sync)."""
@@ -60,6 +108,7 @@ def analyze_content_task(self: Any, document_id_str: str) -> str:
     retry_backoff=True,
     retry_backoff_max=600,
     retry_jitter=True,
+    on_failure=_mark_job_failed_on_failure,
 )
 def generate_embeddings_task(self: Any, document_id_str: str) -> str:
     """Stage 3: Vector Embedding generation (Sync)."""

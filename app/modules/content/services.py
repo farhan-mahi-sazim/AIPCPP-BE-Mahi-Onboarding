@@ -139,14 +139,14 @@ class ContentService:
             job = ProcessingJob(document_id=created_doc.id, status=EJobStatus.PENDING)
             created_job = await self.job_repo.create(job)
 
-            await self.session.commit()
             await self._trigger_pipeline(created_doc.id)
+            await self.session.commit()
 
             return TUploadResponse(document=created_doc, job=created_job)
 
         except Exception as e:
             logger.error(
-                "Database commit failed for file %s. S3 key: %s. Error: %s",
+                "Pipeline trigger or DB commit failed for file %s. S3 key: %s. Error: %s",
                 file.filename,
                 s3_key,
                 str(e),
@@ -158,10 +158,12 @@ class ContentService:
                     self.storage_service.delete_file,
                     s3_key=s3_key,
                 )
-                logger.info("Cleaned up S3 object after DB rollback: %s", s3_key)
+                logger.info(
+                    "Cleaned up S3 object after pipeline/commit failure: %s", s3_key
+                )
             except Exception as cleanup_error:
                 logger.error(
-                    "Failed to cleanup S3 object after DB failure: %s. Error: %s",
+                    "Failed to cleanup S3 object after failure: %s. Error: %s",
                     s3_key,
                     str(cleanup_error),
                 )
@@ -216,6 +218,7 @@ class ContentService:
             filename=doc.filename,
             file_type=doc.file_type,
             summary=version.data.get("summary") if version else None,
+            category=version.data.get("category") if version else None,
             tags=version.data.get("tags", []) if version else [],
             created_at=doc.created_at,
             updated_at=doc.updated_at,
@@ -237,13 +240,14 @@ class ContentService:
 
         s3_key = doc.s3_key
 
+        try:
+            await run_in_threadpool(self.storage_service.delete_file, s3_key=s3_key)
+        except Exception as e:
+            logger.error("Failed to delete S3 file %s: %s", s3_key, e)
+            raise ValueError(f"Failed to delete S3 file: {e}")
+
         doc.current_version_id = None
         await self.session.flush()
 
         await self.document_repo.delete_summary(doc)
         await self.session.commit()
-
-        try:
-            await run_in_threadpool(self.storage_service.delete_file, s3_key=s3_key)
-        except Exception as e:
-            logger.error("Failed to delete S3 file %s: %s", s3_key, e)

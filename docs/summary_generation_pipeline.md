@@ -83,9 +83,33 @@ graph TD
 
 ## Error Handling
 
+### Validation Failure
+
 If the finalizer validation fails:
 
 1.  The `ProcessingJob` is marked as **FAILED**.
 2.  The error is logged with context (document ID).
 
-If an upstream Celery task fails repeatedly and never reaches finalization, Celery will stop retrying after max retries; adding explicit job-failure hooks for that case is a follow-up improvement.
+### Parallel Task Failure
+
+The pipeline uses a **chain** with a **group** for parallel execution:
+
+```python
+processing_pipeline = chain(
+    extract_text_task.s(str(document_id)),
+    group(analyze_content_task.s(), generate_embeddings_task.s()),
+    validate_and_finalize_job_task.s(),
+)
+```
+
+If either `analyze_content_task` or `generate_embeddings_task` fails after exhausting all retries (5 attempts with exponential backoff), the `on_failure` callback marks the job as **FAILED**:
+
+- **Callback**: `_mark_job_failed_on_failure` in `app/modules/processing/tasks.py`
+- **Trigger**: Only executes when `task.request.retries >= task.max_retries`
+- **Behavior**:
+  1. Checks that job is not already `COMPLETED` (handles race condition where task retried and succeeded)
+  2. Updates `ProcessingJob.status` to `FAILED`
+  3. Updates `ProcessingJob.stage` to `PERSISTENCE`
+  4. Commits the change
+
+This prevents jobs from getting stuck in `PENDING` state when parallel tasks fail after all retries.
