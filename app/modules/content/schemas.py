@@ -41,6 +41,7 @@ class TSummaryRead(BaseModel):
     filename: str
     file_type: EFileType | None = None
     summary: str | None = None
+    category: str | None = None
     tags: list[str] = []
     category: str | None = None
     created_at: datetime
