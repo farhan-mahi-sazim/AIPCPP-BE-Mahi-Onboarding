@@ -4,6 +4,8 @@ from uuid import UUID
 import litellm
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.cache import cached
+from app.common.cache.constants import CACHE_SEARCH_TTL, ECacheKeyPrefix
 from app.config.settings import settings
 from app.modules.search.constants import (
     DEFAULT_SEARCH_LIMIT,
@@ -36,6 +38,10 @@ class SearchService:
             logger.error("Failed to generate query embedding: %s", str(e))
             raise ValueError(SearchError.EMBEDDING_FAILED)
 
+    @cached(
+        prefix=ECacheKeyPrefix.SEARCH_RESULTS.value,
+        ttl=CACHE_SEARCH_TTL,
+    )
     async def search(
         self,
         query: str,

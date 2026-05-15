@@ -13,6 +13,11 @@ class Settings(BaseSettings):
 
     REDIS_URL: str = "redis://localhost:6379/0"
 
+    # Cache Settings
+    CACHE_ENABLED: bool = True
+    CACHE_TTL_DEFAULT: int = 300
+    CACHE_CONTENT_TTL: int = 3600
+
     # S3 / MinIO Settings
     S3_ENDPOINT_URL: str = "http://localhost:9000"
     S3_ACCESS_KEY: str = "minioadmin"

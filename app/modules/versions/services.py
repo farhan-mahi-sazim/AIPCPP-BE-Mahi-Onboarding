@@ -3,6 +3,11 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.cache.constants import (
+    CACHE_VERSION_TTL,
+    ECacheKeyPrefix,
+)
+from app.common.cache.decorators import cache_invalidate, cached
 from app.common.enums.version_source import EVersionSource
 from app.models.document import DocumentVersion
 from app.modules.content.repositories import (
@@ -22,6 +27,11 @@ class VersionService:
         self.session = session
         self.doc_repo = DocumentRepository(session)
         self.version_repo = DocumentVersionRepository(session)
+
+    @cached(
+    prefix=ECacheKeyPrefix.VERSION.value,
+    ttl=CACHE_VERSION_TTL,
+    )
 
     async def get_timeline(
         self, document_id: UUID, limit: int = 10, offset: int = 0
@@ -43,6 +53,7 @@ class VersionService:
             offset=offset,
         )
 
+    @cache_invalidate(ECacheKeyPrefix.VERSION.value)
     async def create_human_override(
         self, document_id: UUID, override: TVersionOverride, user_id: UUID
     ) -> TVersionRead:
@@ -74,6 +85,7 @@ class VersionService:
 
         return TVersionRead.model_validate(created)
 
+    @cache_invalidate(ECacheKeyPrefix.VERSION.value)
     async def update_human_version(
         self, version_id: UUID, update_data: TVersionUpdate, user_id: UUID
     ) -> TVersionRead:
@@ -96,6 +108,7 @@ class VersionService:
 
         return TVersionRead.model_validate(updated)
 
+    @cache_invalidate(ECacheKeyPrefix.VERSION.value)
     async def delete_version(self, version_id: UUID, user_id: UUID) -> None:
         version = await self.version_repo.get_by_id(version_id)
         if not version:
