@@ -13,7 +13,8 @@ from app.models.document import Document
 from app.models.job import ProcessingJob
 from app.modules.content.constants import (
     INVALID_FILE_TYPE_MESSAGE,
-    MAX_FILE_SIZE, StorageError,
+    MAX_FILE_SIZE,
+    StorageError,
 )
 from app.modules.content.repositories import DocumentRepository, ProcessingJobRepository
 from app.modules.content.schemas import (
