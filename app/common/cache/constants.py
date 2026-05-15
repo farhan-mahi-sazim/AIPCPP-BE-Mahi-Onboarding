@@ -1,7 +1,7 @@
-from enum import Enum
+from enum import IntEnum, StrEnum
 
 
-class ECacheKeyPrefix(str, Enum):
+class ECacheKeyPrefix(StrEnum):
     CONTENT_SUMMARIES = "content:summaries"
     CONTENT_SUMMARY = "content:summary"
     CONTENT_DOCUMENT = "content:document"
@@ -10,7 +10,7 @@ class ECacheKeyPrefix(str, Enum):
     GENERIC = "cache"
 
 
-class ECacheTTL(int, Enum):
+class ECacheTTL(IntEnum):
     SHORT = 60
     MEDIUM = 300
     LONG = 3600

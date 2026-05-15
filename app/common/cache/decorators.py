@@ -24,7 +24,12 @@ def _generate_cache_key(
 
     for arg in args:
         if arg is not None:
-            if hasattr(arg, "__class__") and arg.__class__.__name__ in ("ContentService", "DocumentService", "UserService", "VersionService"):
+            if hasattr(arg, "__class__") and arg.__class__.__name__ in (
+                "ContentService",
+                "DocumentService",
+                "UserService",
+                "VersionService",
+            ):
                 continue
             key_parts.append(str(arg))
 
@@ -45,7 +50,9 @@ def cached(
     prefix: str,
     ttl: int = CACHE_DEFAULT_TTL,
     key_builder: Callable[..., str] | None = None,
-) -> Callable[[Callable[..., Coroutine[Any, Any, T]]], Callable[..., Coroutine[Any, Any, T]]]:
+) -> Callable[
+    [Callable[..., Coroutine[Any, Any, T]]], Callable[..., Coroutine[Any, Any, T]]
+]:
     def decorator(
         func: Callable[..., Coroutine[Any, Any, T]],
     ) -> Callable[..., Coroutine[Any, Any, T]]:
@@ -81,7 +88,9 @@ def cached(
                     serialized = result if isinstance(result, BaseModel) else result
                     await cache_service.set(cache_key, serialized, ttl)
                 except TypeError:
-                    serialized = result.model_dump() if isinstance(result, BaseModel) else result
+                    serialized = (
+                        result.model_dump() if isinstance(result, BaseModel) else result
+                    )
                     await cache_service.set(cache_key, serialized, ttl)
                 logger.debug(
                     "Cache miss, stored result for key: %s (TTL: %ds)", cache_key, ttl
@@ -94,7 +103,11 @@ def cached(
     return decorator
 
 
-def cache_invalidate(prefix: str) -> Callable[[Callable[..., Coroutine[Any, Any, T]]], Callable[..., Coroutine[Any, Any, T]]]:
+def cache_invalidate(
+    prefix: str,
+) -> Callable[
+    [Callable[..., Coroutine[Any, Any, T]]], Callable[..., Coroutine[Any, Any, T]]
+]:
     def decorator(
         func: Callable[..., Coroutine[Any, Any, T]],
     ) -> Callable[..., Coroutine[Any, Any, T]]:
@@ -125,7 +138,9 @@ def cache_invalidate(prefix: str) -> Callable[[Callable[..., Coroutine[Any, Any,
 def cache_invalidate_on_args(
     prefix: str,
     arg_index: int = 0,
-) -> Callable[[Callable[..., Coroutine[Any, Any, T]]], Callable[..., Coroutine[Any, Any, T]]]:
+) -> Callable[
+    [Callable[..., Coroutine[Any, Any, T]]], Callable[..., Coroutine[Any, Any, T]]
+]:
     def decorator(
         func: Callable[..., Coroutine[Any, Any, T]],
     ) -> Callable[..., Coroutine[Any, Any, T]]:
@@ -143,7 +158,11 @@ def cache_invalidate_on_args(
                 pass
 
             if cache_service is not None:
-                arg_value = args[arg_index] if len(args) > arg_index else kwargs.get("document_id")
+                arg_value = (
+                    args[arg_index]
+                    if len(args) > arg_index
+                    else kwargs.get("document_id")
+                )
                 if arg_value:
                     cache_key = _generate_cache_key(prefix, arg_value)
                     await cache_service.delete(cache_key)

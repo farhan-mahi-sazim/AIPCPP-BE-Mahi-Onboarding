@@ -49,12 +49,14 @@ class CacheService:
 
         try:
             import uuid as uuid_module
-            from datetime import datetime, date
+            from datetime import date, datetime
 
             def json_encoder(obj: Any) -> str:
                 if isinstance(obj, (uuid_module.UUID, datetime, date)):
                     return obj.isoformat() if hasattr(obj, "isoformat") else str(obj)
-                raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+                raise TypeError(
+                    f"Object of type {type(obj).__name__} is not JSON serializable"
+                )
 
             if isinstance(value, BaseModel):
                 serialized = value.model_dump(mode="json")

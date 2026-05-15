@@ -29,10 +29,9 @@ class VersionService:
         self.version_repo = DocumentVersionRepository(session)
 
     @cached(
-    prefix=ECacheKeyPrefix.VERSION.value,
-    ttl=CACHE_VERSION_TTL,
+        prefix=ECacheKeyPrefix.VERSION.value,
+        ttl=CACHE_VERSION_TTL,
     )
-
     async def get_timeline(
         self, document_id: UUID, limit: int = 10, offset: int = 0
     ) -> TPaginatedResponse[TVersionRead]:
