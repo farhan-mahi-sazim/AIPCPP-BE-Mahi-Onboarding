@@ -17,10 +17,32 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    """Rename USER to HUMAN in eversionsource enum."""
-    op.execute("ALTER TYPE eversionsource RENAME VALUE 'USER' TO 'HUMAN'")
+    """Rename USER to HUMAN in eversionsource enum (idempotent)."""
+    op.execute("""
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM pg_enum
+                WHERE enumlabel = 'USER'
+                AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'eversionsource')
+            ) THEN
+                ALTER TYPE eversionsource RENAME VALUE 'USER' TO 'HUMAN';
+            END IF;
+        END $$;
+    """)
 
 
 def downgrade() -> None:
-    """Revert HUMAN back to USER."""
-    op.execute("ALTER TYPE eversionsource RENAME VALUE 'HUMAN' TO 'USER'")
+    """Revert HUMAN back to USER (idempotent)."""
+    op.execute("""
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM pg_enum
+                WHERE enumlabel = 'HUMAN'
+                AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'eversionsource')
+            ) THEN
+                ALTER TYPE eversionsource RENAME VALUE 'HUMAN' TO 'USER';
+            END IF;
+        END $$;
+    """)
