@@ -1,6 +1,8 @@
 import io
 import json
 import logging
+import os
+import tempfile
 import uuid
 import zipfile
 from xml.etree import ElementTree
@@ -136,9 +138,6 @@ class ProcessingService:
         if file_content[:4] == b"PK\x03\x04":
             return self._extract_docx_text(file_content)
 
-        import os
-        import tempfile
-
         try:
             with tempfile.NamedTemporaryFile(suffix=".doc", delete=False) as tmp:
                 tmp.write(file_content)
@@ -226,7 +225,9 @@ class ProcessingService:
                 continue
 
         logger.error("All models in fallback chain failed for %s", document_id)
-        raise last_exception
+        if last_exception:
+            raise last_exception
+        raise RuntimeError("No models available to try")
 
     def _chunk_text(
         self, text: str, chunk_size: int = 1000, overlap: int = 200
@@ -303,7 +304,9 @@ class ProcessingService:
                 continue
 
         logger.error("All embedding models failed for %s", document_id)
-        raise last_exception
+        if last_exception:
+            raise last_exception
+        raise RuntimeError("No embedding models available to try")
 
     def _mark_job_failed(self, job: ProcessingJob | None, reason: str) -> None:
         """Mark job as FAILED and commit changes."""

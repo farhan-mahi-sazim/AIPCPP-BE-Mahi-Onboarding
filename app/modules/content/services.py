@@ -13,7 +13,7 @@ from app.models.document import Document
 from app.models.job import ProcessingJob
 from app.modules.content.constants import (
     INVALID_FILE_TYPE_MESSAGE,
-    MAX_FILE_SIZE,
+    MAX_FILE_SIZE, StorageError,
 )
 from app.modules.content.repositories import DocumentRepository, ProcessingJobRepository
 from app.modules.content.schemas import (
@@ -259,7 +259,7 @@ class ContentService:
             await run_in_threadpool(self.storage_service.delete_file, s3_key=s3_key)
         except Exception as e:
             logger.error("Failed to delete S3 file %s: %s", s3_key, e)
-            raise ValueError(f"Failed to delete S3 file: {e}")
+            raise StorageError(f"Failed to delete S3 file: {e}", s3_key=s3_key)
 
         doc.current_version_id = None
         await self.session.flush()
