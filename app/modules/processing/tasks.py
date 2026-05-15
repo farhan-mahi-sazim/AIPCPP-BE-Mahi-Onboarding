@@ -40,7 +40,7 @@ def _mark_job_failed_on_failure(
 
     with SyncSessionLocal() as session:
         try:
-            from app.modules.processing.repositories import ProcessingJobRepository
+            from app.modules.content.repositories import ProcessingJobRepository
 
             job_repo = ProcessingJobRepository(session)
             job = job_repo.get_by_document_id(document_id)
@@ -136,7 +136,9 @@ def validate_and_finalize_job_task(self: Any, *args: Any, **kwargs: Any) -> str 
     if not document_id_str and args:
         group_result_or_id = args[0]
         if isinstance(group_result_or_id, list) and group_result_or_id:
-            document_id_str = group_result_or_id[0]
+            first_item = group_result_or_id[0]
+            if first_item:
+                document_id_str = first_item
         elif isinstance(group_result_or_id, str):
             document_id_str = group_result_or_id
 

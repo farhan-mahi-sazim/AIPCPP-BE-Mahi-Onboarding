@@ -6,7 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.storage import StorageService, get_storage_service
 from app.config.db import get_db_session
-from app.modules.content.constants import UPLOAD_ERROR_MESSAGE
+from app.modules.content.constants import (
+    DELETE_ERROR_MESSAGE,
+    UPLOAD_ERROR_MESSAGE,
+    StorageError,
+)
 from app.modules.content.schemas import (
     TPaginatedSummariesResponse,
     TSummaryRead,
@@ -135,6 +139,12 @@ async def delete_document(
     except ValueError as e:
         logger.warning("Delete error - not found: %s", e)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except StorageError as e:
+        logger.error("Storage error during deletion for %s: %s", document_id, e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=DELETE_ERROR_MESSAGE,
+        )
     except Exception as e:
         logger.error("Deletion failed for %s: %s", document_id, e)
         raise HTTPException(
