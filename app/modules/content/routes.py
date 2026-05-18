@@ -6,11 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.storage import StorageService, get_storage_service
 from app.config.db import get_db_session
-from app.modules.content.constants import (
-    DELETE_ERROR_MESSAGE,
-    UPLOAD_ERROR_MESSAGE,
-    StorageError,
-)
+from app.modules.content.constants import DELETE_ERROR_MESSAGE, UPLOAD_ERROR_MESSAGE
+from app.modules.content.exceptions import StorageError
 from app.modules.content.schemas import (
     TPaginatedSummariesResponse,
     TSummaryRead,
