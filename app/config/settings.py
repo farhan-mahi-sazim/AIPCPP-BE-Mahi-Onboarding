@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     DB_PASSWORD: str = "postgres"
     DB_NAME: str = "aipcpp_db"
 
+    TEST_DB_PORT: int = 5433
+
     REDIS_URL: str = "redis://localhost:6379/0"
 
     # S3 / MinIO Settings
