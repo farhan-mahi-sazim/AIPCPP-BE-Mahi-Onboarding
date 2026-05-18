@@ -11,10 +11,7 @@ def get_test_db_url(sync: bool = True) -> str:
     if not _url.database.endswith("_test"):
         _url = _url.set(database=f"{_url.database}_test")
 
-    if _url.port == 5434:
-        _url = _url.set(port=5433)
-    elif _url.port == 5432:
-        _url = _url.set(port=5433)
+    _url = _url.set(port=settings.TEST_DB_PORT)
 
     url_str = _url.render_as_string(hide_password=False)
     if sync:

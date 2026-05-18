@@ -40,9 +40,9 @@ def _mark_job_failed_on_failure(
 
     with SyncSessionLocal() as session:
         try:
-            from app.modules.content.repositories import ProcessingJobRepository
+            from app.modules.content.repositories import ProcessingJobRepositorySync
 
-            job_repo = ProcessingJobRepository(session)
+            job_repo = ProcessingJobRepositorySync(session)
             job = job_repo.get_by_document_id(document_id)
             if job and job.status != EJobStatus.COMPLETED:
                 job.status = EJobStatus.FAILED
