@@ -12,7 +12,8 @@ from app.common.enums.job_status import EJobStatus
 from app.common.storage import StorageService
 from app.models.document import Document
 from app.models.job import ProcessingJob
-from app.modules.content.constants import MAX_FILE_SIZE, StorageError
+from app.modules.content.constants import MAX_FILE_SIZE
+from app.modules.content.exceptions import StorageError
 from app.modules.content.repositories import DocumentRepository, ProcessingJobRepository
 from app.modules.content.schemas import (
     TPaginatedSummariesResponse,

@@ -2,45 +2,28 @@ import asyncio
 from unittest.mock import MagicMock
 
 import pytest_asyncio
-import sqlalchemy as sa
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlmodel import SQLModel
 
 from app.common.storage import get_storage_service
 from app.config.db import get_db_session
-from app.config.settings import settings
+from app.config.test_db import get_test_db_url
 from app.main import app
 
-# Use a test database URL safely
-_url = sa.engine.url.make_url(settings.database_url_sync)
-if not _url.database.endswith("_test"):
-    _url = _url.set(database=f"{_url.database}_test")
-
-# If using local dev port 5434, switch to test port 5433
-if _url.port == 5434:
-    _url = _url.set(port=5433)
-elif _url.port == 5432:  # Fallback for standard port
-    _url = _url.set(port=5433)
-
-TEST_DATABASE_URL = _url.render_as_string(hide_password=False).replace(
-    "postgresql+psycopg://", "postgresql+asyncpg://"
-)
+TEST_DATABASE_URL = get_test_db_url(sync=False)
 
 
 @pytest_asyncio.fixture
 async def test_engine():
     engine = create_async_engine(TEST_DATABASE_URL, echo=False)
 
-    # Retry logic for CI stability (waits for Postgres to be ready)
+    import sqlalchemy as sa
+
     max_retries = 5
     for attempt in range(max_retries):
         try:
             async with engine.begin() as conn:
-                # Enable pgvector extension
                 await conn.execute(sa.text("CREATE EXTENSION IF NOT EXISTS vector;"))
-
-                # Manually drop tables with CASCADE to handle circular dependencies
                 await conn.execute(
                     sa.text("DROP TABLE IF EXISTS processing_jobs CASCADE;")
                 )
@@ -52,8 +35,8 @@ async def test_engine():
                 )
                 await conn.execute(sa.text("DROP TABLE IF EXISTS documents CASCADE;"))
                 await conn.execute(sa.text("DROP TABLE IF EXISTS users CASCADE;"))
+                from sqlmodel import SQLModel
 
-                # Create all tables
                 await conn.run_sync(SQLModel.metadata.create_all)
             break
         except Exception as e:
@@ -81,7 +64,6 @@ async def client(db_session) -> AsyncClient:
         lambda file_obj, s3_key, content_type, max_size=None: s3_key
     )
 
-    # Mock Celery tasks
     import app.modules.content.services as services_module
 
     original_trigger = services_module.ContentService._trigger_pipeline
