@@ -11,7 +11,7 @@ from app.common.enums.job_status import EJobStatus
 from app.common.storage import StorageService
 from app.models.document import Document
 from app.models.job import ProcessingJob
-from app.modules.content.constants import INVALID_FILE_TYPE_MESSAGE, MAX_FILE_SIZE
+from app.modules.content.constants import MAX_FILE_SIZE
 from app.modules.content.exceptions import StorageError
 from app.modules.content.repositories import DocumentRepository, ProcessingJobRepository
 from app.modules.content.schemas import (
@@ -117,14 +117,10 @@ class ContentService:
         self._validate_file_size_early(file)
 
         file_id = uuid.uuid4()
-        extension = file.filename.split(".")[-1].upper()
+        extension = file.filename.split(".")[-1].lower()
+        file_type = self._get_file_type(f"file.{extension}")
 
-        try:
-            file_type = EFileType[extension]
-        except KeyError:
-            raise ValueError(INVALID_FILE_TYPE_MESSAGE.format(extension=extension))
-
-        s3_key = f"{owner_id}/{file_id}.{extension.lower()}"
+        s3_key = f"{owner_id}/{file_id}.{extension}"
 
         try:
             import io
