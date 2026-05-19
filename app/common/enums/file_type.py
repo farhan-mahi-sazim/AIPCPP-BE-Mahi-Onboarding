@@ -2,6 +2,8 @@ import enum
 
 
 class EFileType(enum.StrEnum):
-    PDF = "pdf"
-    IMAGE = "image"
-    TEXT = "text"
+    PDF = "PDF"
+    IMAGE = "IMAGE"
+    TEXT = "TEXT"
+    DOCX = "DOCX"
+    DOC = "DOC"

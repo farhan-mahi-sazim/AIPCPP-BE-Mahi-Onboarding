@@ -1,6 +1,7 @@
 import logging
 import os
 import uuid
+from typing import TYPE_CHECKING
 
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,8 +13,16 @@ from app.common.storage import StorageService
 from app.models.document import Document
 from app.models.job import ProcessingJob
 from app.modules.content.constants import MAX_FILE_SIZE
+from app.modules.content.exceptions import StorageError
 from app.modules.content.repositories import DocumentRepository, ProcessingJobRepository
-from app.modules.content.schemas import TUploadResponse
+from app.modules.content.schemas import (
+    TPaginatedSummariesResponse,
+    TSummaryRead,
+    TUploadResponse,
+)
+
+if TYPE_CHECKING:
+    from app.models.document import DocumentVersion
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +42,23 @@ class ContentService:
         extension = os.path.splitext(filename)[1].lower().lstrip(".")
         extension_map = {
             "pdf": EFileType.PDF,
-            "jpg": EFileType.IMAGE,
-            "jpeg": EFileType.IMAGE,
-            "png": EFileType.IMAGE,
             "txt": EFileType.TEXT,
+            "docx": EFileType.DOCX,
+            "doc": EFileType.DOC,
         }
+        image_extensions = {
+            "jpg",
+            "jpeg",
+            "png",
+            "gif",
+            "bmp",
+            "webp",
+            "tiff",
+            "tif",
+            "svg",
+        }
+        if extension in image_extensions:
+            return EFileType.IMAGE
         if extension not in extension_map:
             raise ValueError(f"Unsupported file type: {extension}")
         return extension_map[extension]
@@ -75,18 +96,20 @@ class ContentService:
 
     async def _trigger_pipeline(self, document_id: uuid.UUID) -> None:
         try:
-            from celery import chain
+            from celery import chain, group
 
-            from app.modules.content.tasks import (
+            from app.modules.processing.tasks import (
                 analyze_content_task,
                 extract_text_task,
                 generate_embeddings_task,
+                validate_and_finalize_job_task,
             )
 
+            # Optimization: Parallelize Analysis and Embedding after Extraction
             processing_pipeline = chain(
                 extract_text_task.s(str(document_id)),
-                analyze_content_task.s(),
-                generate_embeddings_task.s(),
+                group(analyze_content_task.s(), generate_embeddings_task.s()),
+                validate_and_finalize_job_task.s(),
             )
             processing_pipeline.apply_async()
             logger.info("Background pipeline triggered for document %s", document_id)
@@ -100,7 +123,10 @@ class ContentService:
         self._validate_file_size_early(file)
 
         file_id = uuid.uuid4()
-        s3_key = self._generate_s3_key(owner_id, file_id, file.filename)
+        extension = file.filename.split(".")[-1].lower()
+        file_type = self._get_file_type(f"file.{extension}")
+
+        s3_key = f"{owner_id}/{file_id}.{extension}"
 
         try:
             await run_in_threadpool(
@@ -127,14 +153,14 @@ class ContentService:
             job = ProcessingJob(document_id=created_doc.id, status=EJobStatus.PENDING)
             created_job = await self.job_repo.create(job)
 
-            await self.session.commit()
             await self._trigger_pipeline(created_doc.id)
+            await self.session.commit()
 
             return TUploadResponse(document=created_doc, job=created_job)
 
         except Exception as e:
             logger.error(
-                "Database commit failed for file %s. S3 key: %s. Error: %s",
+                "Pipeline trigger or DB commit failed for file %s. S3 key: %s. Error: %s",
                 file.filename,
                 s3_key,
                 str(e),
@@ -146,12 +172,97 @@ class ContentService:
                     self.storage_service.delete_file,
                     s3_key=s3_key,
                 )
-                logger.info("Cleaned up S3 object after DB rollback: %s", s3_key)
+                logger.info(
+                    "Cleaned up S3 object after pipeline/commit failure: %s", s3_key
+                )
             except Exception as cleanup_error:
                 logger.error(
-                    "Failed to cleanup S3 object after DB failure: %s. Error: %s",
+                    "Failed to cleanup S3 object after failure: %s. Error: %s",
                     s3_key,
                     str(cleanup_error),
                 )
 
             raise e
+
+    async def get_all_summaries(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "-created_at",
+        owner_id: uuid.UUID | None = None,
+        search_query: str | None = None,
+    ) -> "TPaginatedSummariesResponse":
+        """
+        Fetch paginated documents with their latest AI summary.
+
+        Args:
+            page: Page number (1-indexed, default: 1)
+            page_size: Items per page (default: 20, max: 100)
+            sort_by: Field to sort by (prefix with - for descending)
+            owner_id: Filter by owner ID (optional)
+            search_query: Search in filename (optional)
+
+        Returns:
+            Paginated response with summaries and metadata
+        """
+
+        offset = (page - 1) * page_size
+
+        rows, total = await self.document_repo.get_all_summaries(
+            offset=offset,
+            limit=page_size,
+            sort_by=sort_by,
+            owner_id=owner_id,
+            search_query=search_query,
+        )
+
+        summaries = [self._build_summary_read(doc, version) for doc, version in rows]
+
+        return TPaginatedSummariesResponse.create(
+            data=summaries, total=total, page=page, page_size=page_size
+        )
+
+    @staticmethod
+    def _build_summary_read(
+        doc: "Document", version: "DocumentVersion | None"
+    ) -> TSummaryRead:
+        """Helper method to build TSummaryRead from Document and DocumentVersion."""
+        return TSummaryRead(
+            document_id=doc.id,
+            filename=doc.filename,
+            file_type=doc.file_type,
+            summary_title=version.data.get("summary_title") if version else None,
+            summary=version.data.get("summary") if version else None,
+            category=version.data.get("category") if version else None,
+            tags=version.data.get("tags", []) if version else [],
+            created_at=doc.created_at,
+            updated_at=doc.updated_at,
+        )
+
+    async def get_summary(self, document_id: uuid.UUID) -> TSummaryRead | None:
+        row = await self.document_repo.get_summary(document_id)
+
+        if not row:
+            return None
+
+        doc, version = row
+        return self._build_summary_read(doc, version)
+
+    async def delete_document(self, document_id: uuid.UUID) -> None:
+        doc = await self.document_repo.get_by_id(document_id)
+        if not doc:
+            raise ValueError("Document not found")
+
+        s3_key = doc.s3_key
+
+        try:
+            await run_in_threadpool(self.storage_service.delete_file, s3_key=s3_key)
+        except Exception as e:
+            logger.error("Failed to delete S3 file %s: %s", s3_key, e)
+            raise StorageError(f"Failed to delete S3 file: {e}", s3_key=s3_key)
+
+        doc.current_version_id = None
+        await self.session.flush()
+
+        await self.document_repo.delete_summary(doc)
+        await self.session.commit()

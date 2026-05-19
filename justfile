@@ -56,6 +56,18 @@ test-unit:
 test-e2e:
     uv run python -m pytest tests
 
+celery-worker:
+    uv run celery -A app.config.celery worker --loglevel=info
+
+celery-active:
+    uv run celery -A app.config.celery inspect active
+
+celery-stats:
+    uv run celery -A app.config.celery inspect stats
+
+celery-purge:
+    uv run celery -A app.config.celery purge -f
+
 lint:
 	uv run ruff check .
 

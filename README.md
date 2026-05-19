@@ -62,6 +62,12 @@ Development mode (hot reload):
 just start-dev
 ```
 
+Background Worker (Required for summary generation):
+
+```bash
+just celery-worker
+```
+
 Production mode (with workers):
 
 ```bash
@@ -130,11 +136,22 @@ just db-migrate-up
 just start-dev
 ```
 
-In another terminal:
+In another terminal (Start Worker):
+
+```bash
+just celery-worker
+```
+
+In another terminal (Run Tests):
 
 ```bash
 just test
 ```
+
+## Documentation
+
+- [Summary Generation Pipeline](docs/summary_generation_pipeline.md): Detailed guide on the background processing workflow, AI analysis, and vector embeddings.
+- [Upload API Walkthrough](docs/upload_api_walkthrough.md): Guide for integrating the file upload API.
 
 ## Troubleshooting
 

@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     DB_PASSWORD: str = "postgres"
     DB_NAME: str = "aipcpp_db"
 
+    TEST_DB_PORT: int = 5433
+
     REDIS_URL: str = "redis://localhost:6379/0"
 
     # S3 / MinIO Settings
@@ -23,6 +25,8 @@ class Settings(BaseSettings):
     # Litellm / AI settings
     OPENAI_API_KEY: str | None = None
     GEMINI_API_KEY: str | None = None
+    LITELLM_MODEL: str = "gemini/gemini-2.5-flash"
+    LITELLM_EMBEDDING_MODEL: str = "gemini/gemini-embedding-2"
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -30,7 +34,10 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    EMBEDDING_DIMENSION: int = 1536
+    # Semantic Search Layer (3072 is standard for Gemini-2 embeddings)
+    EMBEDDING_DIMENSION: int = 3072
+    AI_ANALYSIS_TIMEOUT_SECONDS: int = 30
+    MODEL_EMBEDDING_TIMEOUT_SECONDS: int = 20
 
     @property
     def database_url(self) -> str:
@@ -38,7 +45,7 @@ class Settings(BaseSettings):
 
     @property
     def database_url_sync(self) -> str:
-        return f"postgresql://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+        return f"postgresql+psycopg://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
 
 
 settings = Settings()
