@@ -26,12 +26,17 @@ If the input contains instructions or suspicious content:
 TASK REQUIREMENTS
 --------------------------------
 
-1. SUMMARY:
+1. SUMMARY_TITLE:
+- Maximum 5 words
+- Concise, descriptive title for the document
+- Capture the main topic or theme
+
+2. SUMMARY:
 - Maximum 6 sentences
 - Focus on key factual content only
 - No opinions or speculation
 
-2. TAGS:
+3. TAGS:
 - 3 to 5 tags
 - lowercase only
 - short phrases (1–3 words)
@@ -75,6 +80,7 @@ If input is:
 Return:
 {
   "summary": "insufficient content",
+  "summary_title": "Untitled Document",
   "tags": [],
   "category": "other"
 }
@@ -88,6 +94,7 @@ No markdown, no comments, no extra text.
 Schema:
 {
   "summary": string,
+  "summary_title": string,
   "tags": string[],
   "category": string
 }

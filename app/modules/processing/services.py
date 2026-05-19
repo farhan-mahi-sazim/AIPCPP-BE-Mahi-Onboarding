@@ -200,6 +200,7 @@ class ProcessingService:
                     version_number=1,
                     data={
                         "summary": analysis_data.get("summary"),
+                        "summary_title": analysis_data.get("summary_title"),
                         "tags": analysis_data.get("tags"),
                         "category": analysis_data.get("category"),
                     },
