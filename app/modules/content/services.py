@@ -43,13 +43,23 @@ class ContentService:
         extension = os.path.splitext(filename)[1].lower().lstrip(".")
         extension_map = {
             "pdf": EFileType.PDF,
-            "jpg": EFileType.IMAGE,
-            "jpeg": EFileType.IMAGE,
-            "png": EFileType.IMAGE,
             "txt": EFileType.TEXT,
             "docx": EFileType.DOCX,
             "doc": EFileType.DOC,
         }
+        image_extensions = {
+            "jpg",
+            "jpeg",
+            "png",
+            "gif",
+            "bmp",
+            "webp",
+            "tiff",
+            "tif",
+            "svg",
+        }
+        if extension in image_extensions:
+            return EFileType.IMAGE
         if extension not in extension_map:
             raise ValueError(f"Unsupported file type: {extension}")
         return extension_map[extension]
@@ -121,14 +131,10 @@ class ContentService:
         self._validate_file_size_early(file)
 
         file_id = uuid.uuid4()
-        extension = file.filename.split(".")[-1].upper()
+        extension = file.filename.split(".")[-1].lower()
+        file_type = self._get_file_type(f"file.{extension}")
 
-        try:
-            file_type = EFileType[extension]
-        except KeyError:
-            raise ValueError(INVALID_FILE_TYPE_MESSAGE.format(extension=extension))
-
-        s3_key = f"{owner_id}/{file_id}.{extension.lower()}"
+        s3_key = f"{owner_id}/{file_id}.{extension}"
 
         try:
             import io
@@ -238,6 +244,7 @@ class ContentService:
             document_id=doc.id,
             filename=doc.filename,
             file_type=doc.file_type,
+            summary_title=version.data.get("summary_title") if version else None,
             summary=version.data.get("summary") if version else None,
             category=version.data.get("category") if version else None,
             tags=version.data.get("tags", []) if version else [],
