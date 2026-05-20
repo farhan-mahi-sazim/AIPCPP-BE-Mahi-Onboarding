@@ -43,6 +43,8 @@ class ProcessingService:
         self.storage = StorageService()
 
     def process_extraction(self, document_id: uuid.UUID) -> str:
+        from app.common.celery_sse_bridge import publish_progress_update
+
         doc = self.doc_repo.get_by_id(document_id)
         if not doc:
             raise ValueError(f"Document {document_id} not found")
@@ -57,7 +59,16 @@ class ProcessingService:
         if job:
             job.stage = EPipelineStage.EXTRACTION
             job.status = EJobStatus.PROCESSING
+            job.progress = 20
             self.session.commit()
+
+            # Publish progress update
+            publish_progress_update(
+                document_id,
+                progress=20,
+                stage=EPipelineStage.EXTRACTION,
+                status=EJobStatus.PROCESSING,
+            )
 
         file_content = self.storage.get_file_content(doc.s3_key)
 
@@ -67,6 +78,7 @@ class ProcessingService:
             if job:
                 job.status = EJobStatus.FAILED
                 job.stage = EPipelineStage.PERSISTENCE
+                job.progress = 0
                 self.session.commit()
             raise
 
@@ -152,6 +164,8 @@ class ProcessingService:
             raise ValueError(f"DOC extraction failed: {str(e)}") from e
 
     def process_ai_analysis(self, document_id: uuid.UUID) -> str:
+        from app.common.celery_sse_bridge import publish_progress_update
+
         doc = self.doc_repo.get_by_id(document_id)
         if not doc or not doc.raw_text:
             raise ValueError(f"Document {document_id} has no extracted text")
@@ -159,7 +173,15 @@ class ProcessingService:
         job = self.job_repo.get_by_document_id(document_id)
         if job:
             job.stage = EPipelineStage.AI_TASK
+            job.progress = 50
             self.session.commit()
+
+            # Publish progress update
+            publish_progress_update(
+                document_id,
+                progress=50,
+                stage=EPipelineStage.AI_TASK,
+            )
 
         models_to_try = [
             settings.LITELLM_MODEL,
@@ -178,7 +200,8 @@ class ProcessingService:
                         {
                             "role": "user",
                             "content": ANALYSIS_USER_PROMPT.format(
-                                text=doc.raw_text[:8000]
+                                filename=doc.filename,
+                                text=doc.raw_text[:8000],
                             ),
                         },
                     ],
@@ -242,6 +265,8 @@ class ProcessingService:
         return chunks
 
     def process_embeddings(self, document_id: uuid.UUID) -> str:
+        from app.common.celery_sse_bridge import publish_progress_update
+
         doc = self.doc_repo.get_by_id(document_id)
         if not doc or not doc.raw_text:
             raise ValueError(f"Document {document_id} has no extracted text")
@@ -249,7 +274,15 @@ class ProcessingService:
         job = self.job_repo.get_by_document_id(document_id)
         if job:
             job.stage = EPipelineStage.EMBEDDING
+            job.progress = 75
             self.session.commit()
+
+            # Publish progress update
+            publish_progress_update(
+                document_id,
+                progress=75,
+                stage=EPipelineStage.EMBEDDING,
+            )
 
         self.chunk_repo.delete_by_document_id(document_id)
 
@@ -287,6 +320,7 @@ class ProcessingService:
 
                 if job:
                     job.stage = EPipelineStage.EMBEDDING
+                    job.progress = 75
 
                 self.session.commit()
 
@@ -314,6 +348,7 @@ class ProcessingService:
         if job:
             job.status = EJobStatus.FAILED
             job.stage = EPipelineStage.PERSISTENCE
+            job.progress = 0
         self.session.commit()
         logger.error("Job finalization failed: %s", reason)
 
@@ -367,6 +402,8 @@ class ProcessingService:
         Raises:
             ValueError: If any critical validation fails
         """
+        from app.common.celery_sse_bridge import publish_progress_update
+
         doc = self.doc_repo.get_by_id(document_id)
         if not doc:
             raise ValueError(f"Document {document_id} not found")
@@ -383,8 +420,17 @@ class ProcessingService:
         if job:
             job.status = EJobStatus.COMPLETED
             job.stage = EPipelineStage.PERSISTENCE
+            job.progress = 100
 
         self.session.commit()
+
+        # Publish completion update
+        publish_progress_update(
+            document_id,
+            progress=100,
+            stage=EPipelineStage.PERSISTENCE,
+            status=EJobStatus.COMPLETED,
+        )
 
         logger.info(
             "Pipeline validation and finalization completed for document %s. "

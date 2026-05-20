@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.common.enums.file_type import EFileType
 from app.common.enums.job_status import EJobStatus
+from app.common.enums.pipeline_stage import EPipelineStage
 
 
 class TDocumentBase(BaseModel):
@@ -25,7 +26,18 @@ class TDocumentRead(TDocumentBase):
 class TJobRead(BaseModel):
     id: UUID
     status: EJobStatus
+    progress: int = 0
     created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TJobProgressRead(BaseModel):
+    job_id: UUID
+    status: EJobStatus
+    progress: int
+    stage: EPipelineStage | None = None
+    error_log: dict | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
