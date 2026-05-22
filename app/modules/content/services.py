@@ -1,20 +1,25 @@
+import hashlib
+import io
 import logging
 import os
 import uuid
 from typing import TYPE_CHECKING
 
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.cache import cache_invalidate, cached
 from app.common.cache.constants import CACHE_CONTENT_TTL, ECacheKeyPrefix
 from app.common.enums.file_type import EFileType
 from app.common.enums.job_status import EJobStatus
+from app.common.sse_manager import SSEManager
 from app.common.storage import StorageService
 from app.models.document import Document
 from app.models.job import ProcessingJob
-from app.modules.content.constants import INVALID_FILE_TYPE_MESSAGE, MAX_FILE_SIZE
+from app.modules.content.constants import MAX_FILE_SIZE
 from app.modules.content.exceptions import StorageError
+from app.modules.content.progress import create_progress_callback
 from app.modules.content.repositories import DocumentRepository, ProcessingJobRepository
 from app.modules.content.schemas import (
     TPaginatedSummariesResponse,
@@ -29,15 +34,25 @@ logger = logging.getLogger(__name__)
 
 
 class ContentService:
-    def __init__(self, session, storage_service: StorageService) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        storage_service: StorageService,
+        progress_manager: SSEManager | None = None,
+    ) -> None:
         self.session = session
         self.storage_service = storage_service
         self.document_repo = DocumentRepository(session)
         self.job_repo = ProcessingJobRepository(session)
+        self.progress_manager = progress_manager
 
     @staticmethod
     def _generate_s3_key(owner_id: uuid.UUID, file_id: uuid.UUID, filename: str) -> str:
         return f"{owner_id}/{file_id}/{filename}"
+
+    @staticmethod
+    def _compute_file_hash(file_content: bytes) -> str:
+        return hashlib.sha256(file_content).hexdigest()
 
     def _get_file_type(self, filename: str) -> EFileType:
         extension = os.path.splitext(filename)[1].lower().lstrip(".")
@@ -126,24 +141,55 @@ class ContentService:
     @cache_invalidate(ECacheKeyPrefix.CONTENT_SUMMARIES.value)
     @cache_invalidate(ECacheKeyPrefix.SEARCH_RESULTS.value)
     async def upload_document(
-        self, file: UploadFile, owner_id: uuid.UUID
+        self,
+        file: UploadFile,
+        owner_id: uuid.UUID,
+        document_id: uuid.UUID | None = None,
     ) -> TUploadResponse:
         self._validate_file_size_early(file)
 
-        file_id = uuid.uuid4()
+        file_id = document_id or uuid.uuid4()
+        file_content = await file.read()
+        if len(file_content) > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="File too large. Maximum size is 50MB.",
+            )
+        file_hash = self._compute_file_hash(file_content)
+
+        existing_doc = await self.document_repo.get_by_file_hash(file_hash, owner_id)
+        if existing_doc:
+            logger.info(
+                "Duplicate file detected with hash %s, reusing existing document %s",
+                file_hash,
+                existing_doc.id,
+            )
+            existing_job = await self.job_repo.get_by_document_id(existing_doc.id)
+            if not existing_job:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Duplicate file found but job is missing.",
+                )
+            return TUploadResponse(document=existing_doc, job=existing_job)
+
         extension = file.filename.split(".")[-1].lower()
         file_type = self._get_file_type(f"file.{extension}")
 
         s3_key = f"{owner_id}/{file_id}.{extension}"
 
-        try:
-            import io
+        progress_callback = create_progress_callback(
+            self.progress_manager, str(file_id), max_progress=50
+        )
 
+        content_type = file.content_type or "application/octet-stream"
+
+        try:
             await run_in_threadpool(
                 self.storage_service.upload_file,
-                file_obj=io.BytesIO(await file.read()),
+                file_obj=io.BytesIO(file_content),
                 s3_key=s3_key,
-                content_type=file.content_type,
+                content_type=content_type,
+                progress_callback=progress_callback,
             )
         except Exception as e:
             logger.error("Failed to upload to S3: %s", e)
@@ -155,17 +201,33 @@ class ContentService:
                 owner_id=owner_id,
                 filename=file.filename,
                 s3_key=s3_key,
+                file_hash=file_hash,
                 file_type=file_type,
             )
             created_doc = await self.document_repo.create(document)
 
-            job = ProcessingJob(document_id=created_doc.id, status=EJobStatus.PENDING)
+            job = ProcessingJob(
+                document_id=created_doc.id,
+                status=EJobStatus.PROCESSING,
+                progress=0,
+            )
             created_job = await self.job_repo.create(job)
 
             await self._trigger_pipeline(created_doc.id)
             await self.session.commit()
 
-            return TUploadResponse(document=created_doc, job=created_job)
+            # Notify clients that processing has started
+            if self.progress_manager:
+                await self.progress_manager.publish(
+                    str(created_doc.id),
+                    progress=0,
+                    stage="processing_started",
+                )
+
+            return TUploadResponse(
+                document=created_doc,
+                job=created_job,
+            )
 
         except Exception as e:
             logger.error(
@@ -204,6 +266,7 @@ class ContentService:
         sort_by: str = "-created_at",
         owner_id: uuid.UUID | None = None,
         search_query: str | None = None,
+        file_types: list[EFileType] | None = None,
     ) -> "TPaginatedSummariesResponse":
         """
         Fetch paginated documents with their latest AI summary.
@@ -214,6 +277,7 @@ class ContentService:
             sort_by: Field to sort by (prefix with - for descending)
             owner_id: Filter by owner ID (optional)
             search_query: Search in filename (optional)
+            file_types: Filter by file types (optional)
 
         Returns:
             Paginated response with summaries and metadata
@@ -227,6 +291,7 @@ class ContentService:
             sort_by=sort_by,
             owner_id=owner_id,
             search_query=search_query,
+            file_types=file_types,
         )
 
         summaries = [self._build_summary_read(doc, version) for doc, version in rows]

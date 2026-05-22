@@ -18,14 +18,74 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    """Upgrade schema."""
-    # Custom: Rename enum values back to CAPS
-    op.execute("ALTER TYPE eversionsource RENAME VALUE 'human' TO 'HUMAN'")
-    op.execute("ALTER TYPE eversionsource RENAME VALUE 'ai' TO 'AI'")
+    op.execute("""
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM pg_enum
+                WHERE enumlabel = 'human'
+                AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'eversionsource')
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM pg_enum
+                WHERE enumlabel = 'HUMAN'
+                AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'eversionsource')
+            ) THEN
+                ALTER TYPE eversionsource RENAME VALUE 'human' TO 'HUMAN';
+            END IF;
+        END $$;
+    """)
+    op.execute("""
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM pg_enum
+                WHERE enumlabel = 'ai'
+                AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'eversionsource')
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM pg_enum
+                WHERE enumlabel = 'AI'
+                AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'eversionsource')
+            ) THEN
+                ALTER TYPE eversionsource RENAME VALUE 'ai' TO 'AI';
+            END IF;
+        END $$;
+    """)
 
 
 def downgrade() -> None:
-    """Downgrade schema."""
-    # Custom: Revert to lowercase if needed
-    op.execute("ALTER TYPE eversionsource RENAME VALUE 'HUMAN' TO 'human'")
-    op.execute("ALTER TYPE eversionsource RENAME VALUE 'AI' TO 'ai'")
+    op.execute("""
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM pg_enum
+                WHERE enumlabel = 'HUMAN'
+                AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'eversionsource')
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM pg_enum
+                WHERE enumlabel = 'human'
+                AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'eversionsource')
+            ) THEN
+                ALTER TYPE eversionsource RENAME VALUE 'HUMAN' TO 'human';
+            END IF;
+        END $$;
+    """)
+    op.execute("""
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM pg_enum
+                WHERE enumlabel = 'AI'
+                AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'eversionsource')
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM pg_enum
+                WHERE enumlabel = 'ai'
+                AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'eversionsource')
+            ) THEN
+                ALTER TYPE eversionsource RENAME VALUE 'AI' TO 'ai';
+            END IF;
+        END $$;
+    """)

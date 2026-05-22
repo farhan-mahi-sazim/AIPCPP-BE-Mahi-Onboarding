@@ -71,7 +71,9 @@ async def db_session(test_engine) -> AsyncSession:
 async def client(db_session) -> AsyncClient:
     mock_storage = MagicMock()
     mock_storage.upload_file.side_effect = (
-        lambda file_obj, s3_key, content_type, max_size=None: s3_key
+        lambda file_obj, s3_key, content_type, max_size=None, progress_callback=None: (
+            s3_key
+        )
     )
 
     import app.modules.content.services as services_module

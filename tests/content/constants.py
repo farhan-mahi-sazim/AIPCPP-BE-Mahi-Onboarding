@@ -11,7 +11,7 @@ EXE_CONTENT = b"fake exe content"
 TXT_FILENAME = "test.txt"
 TXT_CONTENT = b"fake text content"
 
-SUCCESS_STATUS = "pending"
+SUCCESS_STATUS = "processing"
 UNSUPPORTED_TYPE_ERROR = "Unsupported file type"
 SUMMARY_NOT_FOUND_ERROR = "Summary not found"
 DOCUMENT_NOT_FOUND_ERROR = "Document not found"

@@ -41,13 +41,13 @@ class VersionService:
                 status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
             )
 
-        versions = await self.version_repo.get_all_by_document_id(
+        versions, total = await self.version_repo.get_all_by_document_id(
             document_id, limit, offset
         )
 
         return TPaginatedResponse(
             items=[TVersionRead.model_validate(v) for v in versions],
-            total=len(versions),
+            total=total,
             limit=limit,
             offset=offset,
         )
@@ -126,7 +126,7 @@ class VersionService:
         # If this was the current version, roll back current_version_id
         if doc and doc.current_version_id == version_id:
             # Find the previous version
-            all_versions = await self.version_repo.get_all_by_document_id(
+            all_versions, _ = await self.version_repo.get_all_by_document_id(
                 doc.id, limit=2
             )
             previous_version = None
