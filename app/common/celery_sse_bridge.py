@@ -11,6 +11,7 @@ import uuid
 
 from app.common.enums.job_status import EJobStatus
 from app.common.enums.pipeline_stage import EPipelineStage
+from app.common.sse_manager import sse_manager
 from app.config.db import SyncSessionLocal
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,10 @@ def publish_progress_to_db(
                     job.status = status
 
                 session.commit()
+
+                if status in {EJobStatus.COMPLETED, EJobStatus.FAILED}:
+                    sse_manager._last_events.pop(str(document_id), None)
+
                 logger.info(
                     "Updated job progress for %s: progress=%d, stage=%s, status=%s",
                     document_id,

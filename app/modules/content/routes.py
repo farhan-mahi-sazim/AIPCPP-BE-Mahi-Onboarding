@@ -154,29 +154,33 @@ async def stream_job_progress(
     async def event_generator():
         last_payload: dict | None = None
 
-        while True:
-            job = await job_repo.get_by_document_id(document_id)
-            if not job:
-                error_payload = {"error": "Job not found"}
-                yield f"data: {json.dumps(error_payload)}\n\n"
-                break
+        try:
+            while True:
+                job = await job_repo.get_by_document_id(document_id)
+                if not job:
+                    error_payload = {"error": "Job not found"}
+                    yield f"data: {json.dumps(error_payload)}\n\n"
+                    break
 
-            payload = {
-                "job_id": str(job.id),
-                "status": job.status.value,
-                "progress": job.progress,
-                "stage": job.stage.value if job.stage else None,
-                "error_log": job.error_log,
-            }
+                payload = {
+                    "job_id": str(job.id),
+                    "status": job.status.value,
+                    "progress": job.progress,
+                    "stage": job.stage.value if job.stage else None,
+                    "error_log": job.error_log,
+                }
 
-            if payload != last_payload:
-                last_payload = payload
-                yield f"data: {json.dumps(payload)}\n\n"
+                if payload != last_payload:
+                    last_payload = payload
+                    yield f"data: {json.dumps(payload)}\n\n"
 
-            if job.status in {EJobStatus.COMPLETED, EJobStatus.FAILED}:
-                break
+                if job.status in {EJobStatus.COMPLETED, EJobStatus.FAILED}:
+                    break
 
-            await asyncio.sleep(1)
+                await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            logger.info("SSE client disconnected for document %s", document_id)
+            raise
 
     return StreamingResponse(
         event_generator(),

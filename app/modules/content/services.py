@@ -1,7 +1,7 @@
 import hashlib
-import io
 import logging
 import os
+import tempfile
 import uuid
 from typing import TYPE_CHECKING
 
@@ -148,54 +148,58 @@ class ContentService:
     ) -> TUploadResponse:
         self._validate_file_size_early(file)
 
-        file_id = document_id or uuid.uuid4()
-        file_content = await file.read()
-        if len(file_content) > MAX_FILE_SIZE:
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail="File too large. Maximum size is 50MB.",
-            )
-        file_hash = self._compute_file_hash(file_content)
-
-        existing_doc = await self.document_repo.get_by_file_hash(file_hash, owner_id)
-        if existing_doc:
-            logger.info(
-                "Duplicate file detected with hash %s, reusing existing document %s",
-                file_hash,
-                existing_doc.id,
-            )
-            existing_job = await self.job_repo.get_by_document_id(existing_doc.id)
-            if not existing_job:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="Duplicate file found but job is missing.",
-                )
-            return TUploadResponse(document=existing_doc, job=existing_job)
-
         extension = file.filename.split(".")[-1].lower()
         file_type = self._get_file_type(f"file.{extension}")
 
+        file_id = document_id or uuid.uuid4()
         s3_key = f"{owner_id}/{file_id}.{extension}"
 
-        progress_callback = create_progress_callback(
-            self.progress_manager, str(file_id), max_progress=50
-        )
-
-        content_type = file.content_type or "application/octet-stream"
+        hasher = hashlib.sha256()
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            temp_path = temp_file.name
+            while chunk := await file.read(65536):
+                hasher.update(chunk)
+                temp_file.write(chunk)
+            file_hash = hasher.hexdigest()
 
         try:
-            await run_in_threadpool(
-                self.storage_service.upload_file,
-                file_obj=io.BytesIO(file_content),
-                s3_key=s3_key,
-                content_type=content_type,
-                progress_callback=progress_callback,
+            existing_doc = await self.document_repo.get_by_file_hash(
+                file_hash, owner_id
             )
-        except Exception as e:
-            logger.error("Failed to upload to S3: %s", e)
-            raise e
+            if existing_doc:
+                logger.info(
+                    "Duplicate file detected with hash %s, reusing existing document %s",
+                    file_hash,
+                    existing_doc.id,
+                )
+                existing_job = await self.job_repo.get_by_document_id(existing_doc.id)
+                if not existing_job:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Duplicate file found but job is missing.",
+                    )
+                return TUploadResponse(document=existing_doc, job=existing_job)
 
-        try:
+            progress_callback = create_progress_callback(
+                self.progress_manager, str(file_id), max_progress=50
+            )
+
+            content_type = file.content_type or "application/octet-stream"
+
+            try:
+                with open(temp_path, "rb") as f:
+                    await run_in_threadpool(
+                        self.storage_service.upload_file,
+                        file_obj=f,
+                        s3_key=s3_key,
+                        content_type=content_type,
+                        max_size=MAX_FILE_SIZE,
+                        progress_callback=progress_callback,
+                    )
+            except Exception as e:
+                logger.error("Failed to upload to S3: %s", e)
+                raise e
+
             document = Document(
                 id=file_id,
                 owner_id=owner_id,
@@ -216,7 +220,6 @@ class ContentService:
             await self._trigger_pipeline(created_doc.id)
             await self.session.commit()
 
-            # Notify clients that processing has started
             if self.progress_manager:
                 await self.progress_manager.publish(
                     str(created_doc.id),
@@ -254,6 +257,8 @@ class ContentService:
                 )
 
             raise e
+        finally:
+            os.unlink(temp_path)
 
     @cached(
         prefix=ECacheKeyPrefix.CONTENT_SUMMARIES.value,

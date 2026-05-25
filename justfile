@@ -71,6 +71,9 @@ celery-purge:
 lint:
 	uv run ruff check .
 
+lint-app:
+	uv run black --check app/
+
 lint-fix:
 	uv run ruff check . --fix
 
@@ -83,6 +86,7 @@ format-check:
 # Run all checks (linting and formatting)
 check:
 	just lint
+	just lint-app
 	just format-check
 
 # Redis utilities
