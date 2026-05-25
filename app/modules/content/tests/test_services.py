@@ -27,7 +27,7 @@ class TestContentService:
         mock_file = AsyncMock(spec=UploadFile)
         mock_file.filename = TEST_FILENAME
         mock_file.content_type = TEST_CONTENT_TYPE
-        mock_file.read.return_value = TEST_CONTENT
+        mock_file.read = AsyncMock(side_effect=[TEST_CONTENT, b""])
         mock_file.size = len(TEST_CONTENT)
         mock_file.file = MagicMock()
         mock_file.headers = {}
@@ -50,7 +50,7 @@ class TestContentService:
         mock_file.filename = "virus.exe"
         mock_file.content_type = "application/x-msdownload"
         mock_file.size = 100
-        mock_file.read.return_value = b"mock content"
+        mock_file.read = AsyncMock(side_effect=[b"mock content", b""])
         mock_file.file = MagicMock()
         mock_file.headers = {}
 
@@ -70,7 +70,7 @@ class TestContentService:
         mock_file = AsyncMock(spec=UploadFile)
         mock_file.filename = TEST_FILENAME
         mock_file.content_type = TEST_CONTENT_TYPE
-        mock_file.read.return_value = TEST_CONTENT
+        mock_file.read = AsyncMock(side_effect=[TEST_CONTENT, b""])
         mock_file.size = len(TEST_CONTENT)
         mock_file.file = MagicMock()
         mock_file.headers = {}
