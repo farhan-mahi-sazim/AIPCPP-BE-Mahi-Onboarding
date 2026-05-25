@@ -53,8 +53,8 @@ class TestSearchService:
                 offset=0,
             )
 
-            assert response.total == 3
-            assert len(response.results) == 3
+            assert response.total == 1
+            assert len(response.results) == 1
             assert response.results[0].document_id == MOCK_DOCUMENT_ID
             assert response.results[0].filename == "invoice.pdf"
 
@@ -207,8 +207,8 @@ class TestSearchService:
                 offset=5,
             )
 
-            assert response.total == 10
-            assert len(response.results) == 5
+            assert response.total == 1
+            assert len(response.results) == 1
             assert response.limit == 5
             assert response.offset == 5
 

@@ -10,9 +10,9 @@ logger = logging.getLogger(__name__)
 class SSEManager:
     def __init__(self) -> None:
         self._subscriptions: dict[str, asyncio.Queue[dict[str, Any]]] = {}
-        self._last_events: dict[str, dict[str, Any]] = (
-            {}
-        )  # Cache last event per document
+        self._last_events: dict[
+            str, dict[str, Any]
+        ] = {}  # Cache last event per document
 
     async def subscribe(self, document_id: str) -> AsyncIterator[dict[str, Any]]:
         """

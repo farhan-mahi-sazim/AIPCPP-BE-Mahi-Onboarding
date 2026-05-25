@@ -105,3 +105,6 @@ redis-version-search-keys:
     redis-cli --scan --pattern "version*" | head -50 && \
     echo "=== Search keys ===" && \
     redis-cli --scan --pattern "search:*" | head -50
+
+get-gemini-model-list:
+	uv run python scratch/list_models.py

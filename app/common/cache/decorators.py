@@ -27,6 +27,7 @@ def _generate_cache_key(
             if hasattr(arg, "__class__") and arg.__class__.__name__ in (
                 "ContentService",
                 "DocumentService",
+                "SearchService",
                 "UserService",
                 "VersionService",
             ):

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -32,9 +34,10 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str | None = None
     LITELLM_MODEL: str = "gemini/gemini-2.5-flash"
     LITELLM_EMBEDDING_MODEL: str = "gemini/gemini-embedding-2"
+    SEARCH_SYNTHESIS_MODEL: str = "gemini/gemini-2.0-flash"
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=Path(__file__).resolve().parents[2] / ".env",
         env_ignore_empty=True,
         extra="ignore",
     )
