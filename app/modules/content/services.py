@@ -3,7 +3,6 @@ import logging
 import os
 import tempfile
 import uuid
-from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
@@ -15,20 +14,21 @@ from app.common.enums.file_type import EFileType
 from app.common.enums.job_status import EJobStatus
 from app.common.sse_manager import SSEManager
 from app.common.storage import StorageService
-from app.models.document import Document
+from app.models.document import Document, DocumentVersion
 from app.models.job import ProcessingJob
 from app.modules.content.constants import MAX_FILE_SIZE
 from app.modules.content.exceptions import StorageError
 from app.modules.content.progress import create_progress_callback
-from app.modules.content.repositories import DocumentRepository, ProcessingJobRepository
+from app.modules.content.repositories import (
+    DocumentRepository,
+    DocumentVersionRepository,
+    ProcessingJobRepository,
+)
 from app.modules.content.schemas import (
     TPaginatedSummariesResponse,
     TSummaryRead,
     TUploadResponse,
 )
-
-if TYPE_CHECKING:
-    from app.models.document import DocumentVersion
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +109,11 @@ class ContentService:
                 "Content-Length header missing or empty for %s. Size validation during upload.",
                 file.filename,
             )
+
+    async def get_job_by_document_id(
+        self, document_id: uuid.UUID
+    ) -> ProcessingJob | None:
+        return await self.job_repo.get_by_document_id(document_id)
 
     async def _trigger_pipeline(self, document_id: uuid.UUID) -> None:
         """Triggers the background processing pipeline for a document."""
@@ -257,8 +262,71 @@ class ContentService:
                 )
 
             raise e
-        finally:
-            os.unlink(temp_path)
+
+    async def get_all_summaries(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "-created_at",
+        owner_id: uuid.UUID | None = None,
+        search_query: str | None = None,
+        file_types: list[EFileType] | None = None,
+    ) -> TPaginatedSummariesResponse:
+        doc_service = ContentDocumentService(self.session)
+        return await doc_service.get_all_summaries(
+            page=page,
+            page_size=page_size,
+            sort_by=sort_by,
+            owner_id=owner_id,
+            search_query=search_query,
+            file_types=file_types,
+        )
+
+    async def get_summary(self, document_id: uuid.UUID) -> TSummaryRead | None:
+        doc_service = ContentDocumentService(self.session)
+        return await doc_service.get_summary(document_id)
+
+    async def delete_document(self, document_id: uuid.UUID) -> None:
+        doc_service = ContentDocumentService(self.session, self.storage_service)
+        await doc_service.delete_document(document_id)
+
+
+class ContentDocumentService:
+    def __init__(
+        self, session: AsyncSession, storage_service: StorageService | None = None
+    ) -> None:
+        self.session = session
+        self.storage_service = storage_service
+        self.document_repo = DocumentRepository(session)
+        self.version_repo = DocumentVersionRepository(session)
+
+    async def get_document(self, document_id: uuid.UUID) -> Document | None:
+        return await self.document_repo.get_by_id(document_id)
+
+    async def get_version(self, version_id: uuid.UUID) -> DocumentVersion | None:
+        return await self.version_repo.get_by_id(version_id)
+
+    async def get_versions_by_document_id(
+        self, document_id: uuid.UUID, limit: int = 10, offset: int = 0
+    ) -> tuple[list[DocumentVersion], int]:
+        return await self.version_repo.get_all_by_document_id(
+            document_id, limit, offset
+        )
+
+    async def get_latest_version(
+        self, document_id: uuid.UUID
+    ) -> DocumentVersion | None:
+        return await self.version_repo.get_latest_by_document_id(document_id)
+
+    async def create_version(self, version: DocumentVersion) -> DocumentVersion:
+        return await self.version_repo.create(version)
+
+    async def update_version(self, version: DocumentVersion) -> DocumentVersion:
+        return await self.version_repo.update(version)
+
+    async def delete_version(self, version: DocumentVersion) -> None:
+        await self.session.delete(version)
+        await self.session.flush()
 
     @cached(
         prefix=ECacheKeyPrefix.CONTENT_SUMMARIES.value,
@@ -337,6 +405,9 @@ class ContentService:
         doc = await self.document_repo.get_by_id(document_id)
         if not doc:
             raise ValueError("Document not found")
+
+        if not self.storage_service:
+            raise ValueError("Storage service not configured")
 
         s3_key = doc.s3_key
 

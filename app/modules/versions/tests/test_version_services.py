@@ -91,9 +91,7 @@ class TestVersionService:
         await db_session.flush()
 
         update = TVersionUpdate(data={"summary": "New summary"})
-        updated = await service.update_human_version(
-            human_version.id, update, uuid.uuid4()
-        )
+        updated = await service.update_human_version(human_version.id, update)
 
         assert updated.data["summary"] == "New summary"
 
@@ -112,7 +110,7 @@ class TestVersionService:
         sample_doc.current_version_id = human_version.id
         await db_session.flush()
 
-        await service.delete_version(human_version.id, sample_user.id)
+        await service.delete_version(human_version.id)
 
         # Verify document current_version rolled back to AI version
         await service.session.refresh(sample_doc)

@@ -1,7 +1,10 @@
 import asyncio
+import logging
 from collections.abc import Callable
 
 from app.common.sse_manager import SSEManager
+
+logger = logging.getLogger(__name__)
 
 
 def create_progress_callback(
@@ -9,22 +12,35 @@ def create_progress_callback(
     document_id: str,
     max_progress: int = 50,
 ) -> Callable[[int], None] | None:
+    """Creates a thread-safe sync callback that schedules an async SSE task."""
     if not progress_manager:
         return None
 
-    async def _send_progress_async() -> None:
-        await progress_manager.publish(
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        logger.error(
+            "Cannot create progress callback: No event loop is running in this thread."
+        )
+        return None
+
+    def callback(current_progress: int) -> None:
+        progress_value = current_progress if current_progress > 0 else max_progress
+
+        coroutine = progress_manager.publish(
             str(document_id),
-            50,
+            progress_value,
             stage="uploading",
         )
 
-    def callback(_bytes_transferred: int) -> None:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            return
+        future = asyncio.run_coroutine_threadsafe(coroutine, loop)
 
-        loop.call_soon_threadsafe(lambda: asyncio.ensure_future(_send_progress_async()))
+        future.add_done_callback(
+            lambda f: (
+                logger.error(f"SSE publish failed: {f.exception()}")
+                if f.exception()
+                else None
+            )
+        )
 
     return callback
