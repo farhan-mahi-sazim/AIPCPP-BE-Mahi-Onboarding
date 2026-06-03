@@ -5,6 +5,9 @@ from sqlalchemy import engine_from_config, pool
 from sqlmodel import SQLModel
 
 from app.config.settings import settings
+from app.models.document import Document, DocumentChunk, DocumentVersion  # noqa: F401
+from app.models.job import ProcessingJob  # noqa: F401
+from app.models.user import User  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

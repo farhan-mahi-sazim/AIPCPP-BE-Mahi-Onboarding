@@ -9,6 +9,9 @@ from app.config.settings import settings
 logger = logging.getLogger(__name__)
 
 
+UploadCallback = typing.Callable[[int], None]  # (bytes_transferred,)
+
+
 class StorageService:
     def __init__(self) -> None:
         self.s3 = boto3.client(
@@ -42,10 +45,12 @@ class StorageService:
         s3_key: str,
         content_type: str,
         max_size: int | None = None,
+        progress_callback: UploadCallback | None = None,
     ) -> str:
         """
         Uploads a file-like object to S3 and returns the s3_key.
         If max_size is provided, validates size during streaming without buffering.
+        If progress_callback is provided, it will be called with (bytes_transferred,).
         """
         self._ensure_bucket_exists()
 
@@ -53,12 +58,21 @@ class StorageService:
             file_obj = self._create_size_limited_wrapper(file_obj, max_size)
 
         try:
-            self.s3.upload_fileobj(
-                file_obj,
-                self.bucket_name,
-                s3_key,
-                ExtraArgs={"ContentType": content_type},
-            )
+            if progress_callback:
+                self.s3.upload_fileobj(
+                    file_obj,
+                    self.bucket_name,
+                    s3_key,
+                    ExtraArgs={"ContentType": content_type},
+                    Callback=progress_callback,
+                )
+            else:
+                self.s3.upload_fileobj(
+                    file_obj,
+                    self.bucket_name,
+                    s3_key,
+                    ExtraArgs={"ContentType": content_type},
+                )
             return s3_key
         except Exception as e:
             logger.error("Failed to upload file to S3: %s", e)

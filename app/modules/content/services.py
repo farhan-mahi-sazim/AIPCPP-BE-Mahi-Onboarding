@@ -1,42 +1,56 @@
+import hashlib
 import logging
 import os
+import tempfile
 import uuid
-from typing import TYPE_CHECKING
 
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.concurrency import run_in_threadpool
 
 from app.common.enums.file_type import EFileType
 from app.common.enums.job_status import EJobStatus
+from app.common.sse_manager import SSEManager
 from app.common.storage import StorageService
-from app.models.document import Document
+from app.models.document import Document, DocumentVersion
 from app.models.job import ProcessingJob
 from app.modules.content.constants import MAX_FILE_SIZE
 from app.modules.content.exceptions import StorageError
-from app.modules.content.repositories import DocumentRepository, ProcessingJobRepository
+from app.modules.content.progress import create_progress_callback
+from app.modules.content.repositories import (
+    DocumentRepository,
+    DocumentVersionRepository,
+    ProcessingJobRepository,
+)
 from app.modules.content.schemas import (
     TPaginatedSummariesResponse,
     TSummaryRead,
     TUploadResponse,
 )
 
-if TYPE_CHECKING:
-    from app.models.document import DocumentVersion
-
 logger = logging.getLogger(__name__)
 
 
 class ContentService:
-    def __init__(self, session: AsyncSession, storage_service: StorageService) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        storage_service: StorageService,
+        progress_manager: SSEManager | None = None,
+    ) -> None:
         self.session = session
         self.storage_service = storage_service
         self.document_repo = DocumentRepository(session)
         self.job_repo = ProcessingJobRepository(session)
+        self.progress_manager = progress_manager
 
     @staticmethod
     def _generate_s3_key(owner_id: uuid.UUID, file_id: uuid.UUID, filename: str) -> str:
         return f"{owner_id}/{file_id}/{filename}"
+
+    @staticmethod
+    def _compute_file_hash(file_content: bytes) -> str:
+        return hashlib.sha256(file_content).hexdigest()
 
     def _get_file_type(self, filename: str) -> EFileType:
         extension = os.path.splitext(filename)[1].lower().lstrip(".")
@@ -94,7 +108,13 @@ class ContentService:
                 file.filename,
             )
 
+    async def get_job_by_document_id(
+        self, document_id: uuid.UUID
+    ) -> ProcessingJob | None:
+        return await self.job_repo.get_by_document_id(document_id)
+
     async def _trigger_pipeline(self, document_id: uuid.UUID) -> None:
+        """Triggers the background processing pipeline for a document."""
         try:
             from celery import chain, group
 
@@ -106,57 +126,112 @@ class ContentService:
             )
 
             # Optimization: Parallelize Analysis and Embedding after Extraction
+            # Finalize task ensures synchronization and state correctness
             processing_pipeline = chain(
                 extract_text_task.s(str(document_id)),
                 group(analyze_content_task.s(), generate_embeddings_task.s()),
-                validate_and_finalize_job_task.s(),
+                validate_and_finalize_job_task.s(document_id_str=str(document_id)),
             )
             processing_pipeline.apply_async()
             logger.info("Background pipeline triggered for document %s", document_id)
         except ImportError:
             logger.debug("Celery tasks not yet implemented, skipping pipeline")
+        except Exception as e:
+            logger.error(
+                "Failed to trigger pipeline for document %s: %s", document_id, e
+            )
 
     async def upload_document(
-        self, file: UploadFile, owner_id: uuid.UUID
+        self,
+        file: UploadFile,
+        owner_id: uuid.UUID,
+        document_id: uuid.UUID | None = None,
     ) -> TUploadResponse:
-        file_type = self._get_file_type(file.filename)
         self._validate_file_size_early(file)
 
-        file_id = uuid.uuid4()
         extension = file.filename.split(".")[-1].lower()
         file_type = self._get_file_type(f"file.{extension}")
 
+        file_id = document_id or uuid.uuid4()
         s3_key = f"{owner_id}/{file_id}.{extension}"
 
-        try:
-            await run_in_threadpool(
-                self.storage_service.upload_file,
-                file_obj=file.file,
-                s3_key=s3_key,
-                content_type=file.content_type or "application/octet-stream",
-                max_size=MAX_FILE_SIZE,
-            )
-        except Exception as e:
-            logger.error("S3 upload failed for %s: %s", file.filename, str(e))
-            raise e
+        hasher = hashlib.sha256()
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            temp_path = temp_file.name
+            while chunk := await file.read(65536):
+                hasher.update(chunk)
+                temp_file.write(chunk)
+            file_hash = hasher.hexdigest()
 
         try:
+            existing_doc = await self.document_repo.get_by_file_hash(
+                file_hash, owner_id
+            )
+            if existing_doc:
+                logger.info(
+                    "Duplicate file detected with hash %s, reusing existing document %s",
+                    file_hash,
+                    existing_doc.id,
+                )
+                existing_job = await self.job_repo.get_by_document_id(existing_doc.id)
+                if not existing_job:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Duplicate file found but job is missing.",
+                    )
+                return TUploadResponse(document=existing_doc, job=existing_job)
+
+            progress_callback = create_progress_callback(
+                self.progress_manager, str(file_id), max_progress=50
+            )
+
+            content_type = file.content_type or "application/octet-stream"
+
+            try:
+                with open(temp_path, "rb") as f:
+                    await run_in_threadpool(
+                        self.storage_service.upload_file,
+                        file_obj=f,
+                        s3_key=s3_key,
+                        content_type=content_type,
+                        max_size=MAX_FILE_SIZE,
+                        progress_callback=progress_callback,
+                    )
+            except Exception as e:
+                logger.error("Failed to upload to S3: %s", e)
+                raise e
+
             document = Document(
                 id=file_id,
                 owner_id=owner_id,
                 filename=file.filename,
                 s3_key=s3_key,
+                file_hash=file_hash,
                 file_type=file_type,
             )
             created_doc = await self.document_repo.create(document)
 
-            job = ProcessingJob(document_id=created_doc.id, status=EJobStatus.PENDING)
+            job = ProcessingJob(
+                document_id=created_doc.id,
+                status=EJobStatus.PROCESSING,
+                progress=0,
+            )
             created_job = await self.job_repo.create(job)
 
             await self._trigger_pipeline(created_doc.id)
             await self.session.commit()
 
-            return TUploadResponse(document=created_doc, job=created_job)
+            if self.progress_manager:
+                await self.progress_manager.publish(
+                    str(created_doc.id),
+                    progress=0,
+                    stage="processing_started",
+                )
+
+            return TUploadResponse(
+                document=created_doc,
+                job=created_job,
+            )
 
         except Exception as e:
             logger.error(
@@ -191,6 +266,72 @@ class ContentService:
         sort_by: str = "-created_at",
         owner_id: uuid.UUID | None = None,
         search_query: str | None = None,
+        file_types: list[EFileType] | None = None,
+    ) -> TPaginatedSummariesResponse:
+        doc_service = ContentDocumentService(self.session)
+        return await doc_service.get_all_summaries(
+            page=page,
+            page_size=page_size,
+            sort_by=sort_by,
+            owner_id=owner_id,
+            search_query=search_query,
+            file_types=file_types,
+        )
+
+    async def get_summary(self, document_id: uuid.UUID) -> TSummaryRead | None:
+        doc_service = ContentDocumentService(self.session)
+        return await doc_service.get_summary(document_id)
+
+    async def delete_document(self, document_id: uuid.UUID) -> None:
+        doc_service = ContentDocumentService(self.session, self.storage_service)
+        await doc_service.delete_document(document_id)
+
+
+class ContentDocumentService:
+    def __init__(
+        self, session: AsyncSession, storage_service: StorageService | None = None
+    ) -> None:
+        self.session = session
+        self.storage_service = storage_service
+        self.document_repo = DocumentRepository(session)
+        self.version_repo = DocumentVersionRepository(session)
+
+    async def get_document(self, document_id: uuid.UUID) -> Document | None:
+        return await self.document_repo.get_by_id(document_id)
+
+    async def get_version(self, version_id: uuid.UUID) -> DocumentVersion | None:
+        return await self.version_repo.get_by_id(version_id)
+
+    async def get_versions_by_document_id(
+        self, document_id: uuid.UUID, limit: int = 10, offset: int = 0
+    ) -> tuple[list[DocumentVersion], int]:
+        return await self.version_repo.get_all_by_document_id(
+            document_id, limit, offset
+        )
+
+    async def get_latest_version(
+        self, document_id: uuid.UUID
+    ) -> DocumentVersion | None:
+        return await self.version_repo.get_latest_by_document_id(document_id)
+
+    async def create_version(self, version: DocumentVersion) -> DocumentVersion:
+        return await self.version_repo.create(version)
+
+    async def update_version(self, version: DocumentVersion) -> DocumentVersion:
+        return await self.version_repo.update(version)
+
+    async def delete_version(self, version: DocumentVersion) -> None:
+        await self.session.delete(version)
+        await self.session.flush()
+
+    async def get_all_summaries(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "-created_at",
+        owner_id: uuid.UUID | None = None,
+        search_query: str | None = None,
+        file_types: list[EFileType] | None = None,
     ) -> "TPaginatedSummariesResponse":
         """
         Fetch paginated documents with their latest AI summary.
@@ -201,6 +342,7 @@ class ContentService:
             sort_by: Field to sort by (prefix with - for descending)
             owner_id: Filter by owner ID (optional)
             search_query: Search in filename (optional)
+            file_types: Filter by file types (optional)
 
         Returns:
             Paginated response with summaries and metadata
@@ -214,6 +356,7 @@ class ContentService:
             sort_by=sort_by,
             owner_id=owner_id,
             search_query=search_query,
+            file_types=file_types,
         )
 
         summaries = [self._build_summary_read(doc, version) for doc, version in rows]
@@ -252,6 +395,9 @@ class ContentService:
         doc = await self.document_repo.get_by_id(document_id)
         if not doc:
             raise ValueError("Document not found")
+
+        if not self.storage_service:
+            raise ValueError("Storage service not configured")
 
         s3_key = doc.s3_key
 

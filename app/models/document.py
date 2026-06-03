@@ -24,6 +24,7 @@ class Document(SQLModel, table=True):
     owner_id: UUID = Field(foreign_key="users.id", index=True)
     filename: str
     s3_key: str
+    file_hash: str | None = Field(default=None, index=True)
     file_type: EFileType
     raw_text: str | None = Field(default=None, sa_column=Column(Text))
 

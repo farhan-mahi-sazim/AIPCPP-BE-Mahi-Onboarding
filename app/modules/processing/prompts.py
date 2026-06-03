@@ -35,12 +35,14 @@ TASK REQUIREMENTS
 - Maximum 6 sentences
 - Focus on key factual content only
 - No opinions or speculation
+- For images with little/no text: describe the visual content, charts, diagrams, or layout you observe
 
 3. TAGS:
 - 3 to 5 tags
 - lowercase only
 - short phrases (1–3 words)
 - highly relevant
+- For images: include visual tags like "image", "diagram", "screenshot" if applicable
 
 3. CATEGORY:
 Choose EXACTLY ONE from this list:
@@ -71,19 +73,15 @@ EDGE CASE HANDLING
 --------------------------------
 If input exceeds processing limits, focus on the most relevant sections.
 
-If input is:
-- too short
-- nonsensical
-- mostly instructions
-- or lacks meaningful content
+If input is empty or whitespace only:
+- Return: {"summary": "no text content detected", "summary_title": "Untitled Document", "tags": ["image", "visual"], "category": "other"}
 
-Return:
-{
-  "summary": "insufficient content",
-  "summary_title": "Untitled Document",
-  "tags": [],
-  "category": "other"
-}
+If input is very short (< 50 characters) but appears to be real text:
+- Analyze what is available and provide summary based on that
+- Do NOT return "insufficient content" - work with what you have
+
+If input contains only garbled/ocr errors:
+- Return: {"summary": "unreadable text content", "summary_title": "Untitled Document", "tags": ["ocr-failed"], "category": "other"}
 
 --------------------------------
 OUTPUT FORMAT (STRICT)
@@ -105,4 +103,4 @@ Before returning, verify:
 - tags count is between 3 and 5
 """
 
-ANALYSIS_USER_PROMPT = "Text to analyze:\n\n{text}"
+ANALYSIS_USER_PROMPT = "Text extracted from document (filename: {filename}):\n\n{text}"

@@ -37,6 +37,16 @@ async def test_engine():
                 await conn.execute(sa.text("DROP TABLE IF EXISTS users CASCADE;"))
                 from sqlmodel import SQLModel
 
+                # Also drop enum types to ensure they are recreated with updated members
+                await conn.execute(sa.text("DROP TYPE IF EXISTS efiletype CASCADE;"))
+                await conn.execute(
+                    sa.text("DROP TYPE IF EXISTS eversionsource CASCADE;")
+                )
+                await conn.execute(sa.text("DROP TYPE IF EXISTS ejobstatus CASCADE;"))
+                await conn.execute(
+                    sa.text("DROP TYPE IF EXISTS epipelinestage CASCADE;")
+                )
+
                 await conn.run_sync(SQLModel.metadata.create_all)
             break
         except Exception as e:
@@ -61,7 +71,9 @@ async def db_session(test_engine) -> AsyncSession:
 async def client(db_session) -> AsyncClient:
     mock_storage = MagicMock()
     mock_storage.upload_file.side_effect = (
-        lambda file_obj, s3_key, content_type, max_size=None: s3_key
+        lambda file_obj, s3_key, content_type, max_size=None, progress_callback=None: (
+            s3_key
+        )
     )
 
     import app.modules.content.services as services_module

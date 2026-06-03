@@ -18,6 +18,7 @@ class ProcessingJob(SQLModel, table=True):
     document_id: UUID = Field(foreign_key="documents.id", index=True)
 
     status: EJobStatus = Field(default=EJobStatus.PENDING)
+    progress: int = Field(default=0, ge=0, le=100)
     stage: EPipelineStage | None = None
 
     retry_count: int = Field(default=0)

@@ -3,7 +3,9 @@ from uuid import UUID
 from sqlalchemy import delete, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import over
 
+from app.common.enums.file_type import EFileType
 from app.models.document import Document, DocumentChunk, DocumentVersion
 from app.models.job import ProcessingJob
 
@@ -23,10 +25,17 @@ class DocumentRepository:
     async def get_by_id(self, document_id: UUID) -> Document | None:
         return await self.session.get(Document, document_id)
 
+    async def get_by_file_hash(self, file_hash: str, owner_id: UUID) -> Document | None:
+        stmt = select(Document).where(
+            Document.file_hash == file_hash,
+            Document.owner_id == owner_id,
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def get_all_with_summaries(
-        self,
+        self, limit: int = 10, offset: int = 0
     ) -> list[tuple[Document, DocumentVersion | None]]:
-        """Fetch all documents with their latest AI version."""
         stmt = (
             select(Document, DocumentVersion)
             .join(
@@ -35,6 +44,8 @@ class DocumentRepository:
                 isouter=True,
             )
             .order_by(Document.created_at.desc())
+            .limit(limit)
+            .offset(offset)
         )
         result = await self.session.execute(stmt)
         return list(result.all())
@@ -46,6 +57,7 @@ class DocumentRepository:
         sort_by: str = "-created_at",
         owner_id: UUID | None = None,
         search_query: str | None = None,
+        file_types: list[EFileType] | None = None,
     ) -> tuple[list[tuple[Document, DocumentVersion | None]], int]:
         """
         Fetch paginated documents with their latest AI version.
@@ -56,6 +68,7 @@ class DocumentRepository:
             sort_by: Field to sort by (prefix with - for descending)
             owner_id: Filter by owner ID (optional)
             search_query: Search in filename (optional)
+            file_types: Filter by file types (optional)
 
         Returns:
             Tuple of (paginated results, total count)
@@ -74,12 +87,18 @@ class DocumentRepository:
             search_pattern = f"%{search_query}%"
             stmt = stmt.where(Document.filename.ilike(search_pattern))
 
+        if file_types:
+            stmt = stmt.where(Document.file_type.in_(file_types))
+
         count_stmt = select(func.count()).select_from(Document)
         if owner_id:
             count_stmt = count_stmt.where(Document.owner_id == owner_id)
         if search_query:
             search_pattern = f"%{search_query}%"
             count_stmt = count_stmt.where(Document.filename.ilike(search_pattern))
+
+        if file_types:
+            count_stmt = count_stmt.where(Document.file_type.in_(file_types))
 
         count_result = await self.session.execute(count_stmt)
         total = count_result.scalar() or 0
@@ -127,6 +146,44 @@ class DocumentVersionRepository:
         self.session = session
 
     async def create(self, version: DocumentVersion) -> DocumentVersion:
+        self.session.add(version)
+        await self.session.flush()
+        await self.session.refresh(version)
+        return version
+
+    async def get_by_id(self, version_id: UUID) -> DocumentVersion | None:
+        return await self.session.get(DocumentVersion, version_id)
+
+    async def get_all_by_document_id(
+        self, document_id: UUID, limit: int = 10, offset: int = 0
+    ) -> tuple[list[DocumentVersion], int]:
+        total_count = over(func.count(), partition_by=DocumentVersion.document_id)
+        stmt = (
+            select(DocumentVersion, total_count.label("total_count"))
+            .where(DocumentVersion.document_id == document_id)
+            .order_by(DocumentVersion.version_number.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await self.session.execute(stmt)
+        rows = list(result.all())
+        versions = [row[0] for row in rows]
+        total = int(rows[0][1]) if rows else 0
+        return versions, total
+
+    async def get_latest_by_document_id(
+        self, document_id: UUID
+    ) -> DocumentVersion | None:
+        stmt = (
+            select(DocumentVersion)
+            .where(DocumentVersion.document_id == document_id)
+            .order_by(DocumentVersion.version_number.desc())
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def update(self, version: DocumentVersion) -> DocumentVersion:
         self.session.add(version)
         await self.session.flush()
         await self.session.refresh(version)
@@ -181,6 +238,14 @@ class DocumentRepositorySync:
 
     def get_by_id(self, document_id: UUID) -> Document | None:
         return self.session.get(Document, document_id)
+
+    def get_by_file_hash(self, file_hash: str, owner_id: UUID) -> Document | None:
+        stmt = select(Document).where(
+            Document.file_hash == file_hash,
+            Document.owner_id == owner_id,
+        )
+        result = self.session.execute(stmt)
+        return result.scalar_one_or_none()
 
 
 class DocumentVersionRepositorySync:
