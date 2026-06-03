@@ -111,12 +111,11 @@ async def get_summary(
 async def get_job_progress(
     document_id: uuid.UUID,
     db_session: AsyncSession = Depends(get_db_session),
+    storage_service: StorageService = Depends(get_storage_service),
 ):
     """Get processing job progress for a document."""
-    from app.modules.content.repositories import ProcessingJobRepository
-
-    job_repo = ProcessingJobRepository(db_session)
-    job = await job_repo.get_by_document_id(document_id)
+    service = ContentService(db_session, storage_service)
+    job = await service.get_job_by_document_id(document_id)
     if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Job not found"
@@ -134,16 +133,15 @@ async def get_job_progress(
 async def stream_job_progress(
     document_id: uuid.UUID,
     db_session: AsyncSession = Depends(get_db_session),
+    storage_service: StorageService = Depends(get_storage_service),
 ):
     """
     Stream real-time progress updates via Server-Sent Events (SSE).
     Clients can connect to this endpoint to receive live progress updates.
     """
 
-    from app.modules.content.repositories import ProcessingJobRepository
-
-    job_repo = ProcessingJobRepository(db_session)
-    job = await job_repo.get_by_document_id(document_id)
+    service = ContentService(db_session, storage_service)
+    job = await service.get_job_by_document_id(document_id)
     if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Job not found"
@@ -154,7 +152,7 @@ async def stream_job_progress(
 
         try:
             while True:
-                job = await job_repo.get_by_document_id(document_id)
+                job = await service.get_job_by_document_id(document_id)
                 if not job:
                     error_payload = {"error": "Job not found"}
                     yield f"data: {json.dumps(error_payload)}\n\n"

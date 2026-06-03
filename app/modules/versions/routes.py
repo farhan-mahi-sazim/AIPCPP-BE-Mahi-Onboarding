@@ -57,10 +57,8 @@ async def edit_user_version(
     update_data: TVersionUpdate,
     session: AsyncSession = Depends(get_db_session),
 ):
-    # TODO: Get actual user_id from auth dependency
-    dummy_user_id = UUID("00000000-0000-0000-0000-000000000000")
     service = VersionService(session)
-    return await service.update_human_version(version_id, update_data, dummy_user_id)
+    return await service.update_human_version(version_id, update_data)
 
 
 @router.delete(
@@ -73,8 +71,6 @@ async def delete_version(
     version_id: UUID,
     session: AsyncSession = Depends(get_db_session),
 ):
-    # TODO: Get actual user_id from auth dependency
-    dummy_user_id = UUID("00000000-0000-0000-0000-000000000000")
     service = VersionService(session)
-    await service.delete_version(version_id, dummy_user_id)
+    await service.delete_version(version_id)
     return TMessageResponse(message="Version deleted successfully")
