@@ -203,26 +203,26 @@ The client requests an ingestion process. To give users a fluid interface, AIPCP
 ```mermaid
 sequenceDiagram
     autonumber
-    actor User as Client UI
+    participant Client UI
     participant API as FastAPI Router
     participant Store as Object Storage (MinIO)
     participant DB as PostgreSQL
     participant Celery as Celery Tasks Broker
 
-    User->>API: POST /upload (File payload)
+    Client UI->>API: POST /upload (File payload)
     API->>Store: Put raw binary (S3 Key)
     API->>DB: Create Document (raw_text = Null)
     API->>DB: Instantiate ProcessingJob (PENDING)
     API->>Celery: Trigger Asynchronous Pipeline
-    API-->>User: Returns Document UUID
+    API-->>Client UI: Returns Document UUID
     
-    Note over User, API: SSE Stream Connection Established
-    User->>API: GET /jobs/{id}/progress/stream
+    Note over Client UI, API: SSE Stream Connection Established
+    Client UI->>API: GET /jobs/{id}/progress/stream
     
     loop Every status transition in worker
         Celery->>DB: Update progress (e.g., Extraction: 20%)
         DB-->>API: Read current progress
-        API-->>User: Send progress event payload (SSE)
+        API-->>Client UI: Send progress event payload (SSE)
     end
 ```
 
@@ -233,20 +233,20 @@ This flowchart details how the system keeps a linear versioning history of conte
 
 ```mermaid
 flowchart TD
-    A[Celery AI Pipeline Completes] --> B[Create Version 1: source=AI]
-    B --> C[Set Document.current_version_id = Version 1]
+    A["Celery AI Pipeline Completes"] --> B["Create Version 1: source=AI"]
+    B --> C["Set Document.current_version_id = Version 1"]
     
     C --> D{User makes an edit?}
-    D -- Yes --> E[POST /versions/{id}/override]
-    E --> F[Generate Version 2: source=HUMAN]
-    F --> G[Set parent_version_id = Version 1]
-    G --> H[Set Document.current_version_id = Version 2]
+    D -- Yes --> E["POST /versions/{id}/override"]
+    E --> F["Generate Version 2: source=HUMAN"]
+    F --> G["Set parent_version_id = Version 1"]
+    G --> H["Set Document.current_version_id = Version 2"]
     
     H --> I{User deletes Version 2?}
-    I -- Yes --> J[Identify parent version: Version 1]
-    J --> K[Set Document.current_version_id = Version 1]
-    K --> L[Delete Version 2 record]
-    I -- No --> M[Document maintains Version 2 active]
+    I -- Yes --> J["Identify parent version: Version 1"]
+    J --> K["Set Document.current_version_id = Version 1"]
+    K --> L["Delete Version 2 record"]
+    I -- No --> M["Document maintains Version 2 active"]
 ```
 
 ---

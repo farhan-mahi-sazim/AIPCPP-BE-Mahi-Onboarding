@@ -21,9 +21,7 @@ class CacheResponse(BaseModel):
 
 
 async def get_cached_response(
-    request: Request,
     key: str,
-    ttl: int = CACHE_DEFAULT_TTL,
 ) -> tuple[Any, bool]:
     if not settings.CACHE_ENABLED:
         return None, False

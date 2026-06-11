@@ -1,36 +1,19 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, Field
 
 from app.config.db import get_db_session
-from app.modules.search.constants import (
-    DEFAULT_SEARCH_LIMIT,
-    DEFAULT_SEARCH_OFFSET,
-    MAX_SEARCH_LIMIT,
+from app.modules.search.schemas import (
+    TLegacySearchResponse,
+    TSearchRequest,
+    TSearchResponse,
 )
-from app.modules.search.schemas import TLegacySearchResponse, TSearchResponse
 from app.modules.search.services import SearchService
 
 router = APIRouter(prefix="/search", tags=["search"])
 
 
 DUMMY_USER_ID = UUID("00000000-0000-0000-0000-000000000000")
-
-
-class TSearchRequest(BaseModel):
-    query: str = Field(..., min_length=1, description="Search query text")
-    limit: int = Field(
-        default=DEFAULT_SEARCH_LIMIT,
-        ge=1,
-        le=MAX_SEARCH_LIMIT,
-        description="Maximum number of results",
-    )
-    offset: int = Field(
-        default=DEFAULT_SEARCH_OFFSET,
-        ge=0,
-        description="Number of results to skip",
-    )
 
 
 async def get_current_user_id() -> UUID:

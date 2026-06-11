@@ -1,6 +1,8 @@
 import json
 import logging
+import uuid as uuid_module
 from collections.abc import Callable
+from datetime import date, datetime
 from typing import Any, TypeVar
 
 from pydantic import BaseModel
@@ -48,8 +50,6 @@ class CacheService:
             return False
 
         try:
-            import uuid as uuid_module
-            from datetime import date, datetime
 
             def json_encoder(obj: Any) -> str:
                 if isinstance(obj, (uuid_module.UUID, datetime, date)):

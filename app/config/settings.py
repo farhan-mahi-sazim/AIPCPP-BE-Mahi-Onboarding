@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     EMBEDDING_DIMENSION: int = 3072
     AI_ANALYSIS_TIMEOUT_SECONDS: int = 30
     MODEL_EMBEDDING_TIMEOUT_SECONDS: int = 20
+    SYNTHESIS_TIMEOUT_SECONDS: int = 15
+    SYNTHESIS_MAX_CHUNKS: int = 5
 
     @property
     def database_url(self) -> str:

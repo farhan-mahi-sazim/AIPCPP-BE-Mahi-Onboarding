@@ -1,4 +1,5 @@
 import re
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import bindparam, desc, func, select
@@ -35,12 +36,13 @@ class SearchRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def search_by_document(
+    async def _search(
         self,
         query_embedding: list[float],
-        owner_id: UUID | None = None,
-        limit: int = DEFAULT_SEARCH_LIMIT,
-        offset: int = DEFAULT_SEARCH_OFFSET,
+        owner_id: UUID | None,
+        limit: int,
+        offset: int,
+        *order_by: Any,
     ) -> tuple[list[dict], int]:
         query_embedding_param = bindparam(
             "query_embedding", value=query_embedding, type_=DocumentChunk.embedding.type
@@ -72,12 +74,7 @@ class SearchRepository:
         count_result = await self.session.execute(count_stmt)
         total = count_result.scalar() or 0
 
-        search_stmt = (
-            base_stmt.order_by(Document.id, desc("similarity"))
-            .offset(offset)
-            .limit(limit)
-        )
-
+        search_stmt = base_stmt.order_by(*order_by).offset(offset).limit(limit)
         result = await self.session.execute(search_stmt)
         rows = result.all()
 
@@ -97,6 +94,17 @@ class SearchRepository:
             )
 
         return results, total
+
+    async def search_by_document(
+        self,
+        query_embedding: list[float],
+        owner_id: UUID | None = None,
+        limit: int = DEFAULT_SEARCH_LIMIT,
+        offset: int = DEFAULT_SEARCH_OFFSET,
+    ) -> tuple[list[dict], int]:
+        return await self._search(
+            query_embedding, owner_id, limit, offset, Document.id, desc("similarity")
+        )
 
     async def search_chunks(
         self,
@@ -105,56 +113,9 @@ class SearchRepository:
         limit: int = DEFAULT_SEARCH_LIMIT,
         offset: int = DEFAULT_SEARCH_OFFSET,
     ) -> tuple[list[dict], int]:
-        query_embedding_param = bindparam(
-            "query_embedding", value=query_embedding, type_=DocumentChunk.embedding.type
+        return await self._search(
+            query_embedding, owner_id, limit, offset, desc("similarity")
         )
-        cosine_similarity = 1 - DocumentChunk.embedding.cosine_distance(
-            query_embedding_param
-        )
-
-        base_stmt = (
-            select(
-                DocumentChunk,
-                Document,
-                DocumentVersion,
-                cosine_similarity.label("similarity"),
-            )
-            .join(Document, DocumentChunk.document_id == Document.id)
-            .join(
-                DocumentVersion,
-                Document.current_version_id == DocumentVersion.id,
-                isouter=True,
-            )
-            .where(DocumentChunk.embedding.isnot(None))
-        )
-
-        if owner_id:
-            base_stmt = base_stmt.where(Document.owner_id == owner_id)
-
-        count_stmt = select(func.count()).select_from(base_stmt.subquery())
-        count_result = await self.session.execute(count_stmt)
-        total = count_result.scalar() or 0
-
-        search_stmt = base_stmt.order_by(desc("similarity")).offset(offset).limit(limit)
-        result = await self.session.execute(search_stmt)
-        rows = result.all()
-
-        results = []
-        for chunk, doc, version, similarity in rows:
-            results.append(
-                {
-                    "document_id": doc.id,
-                    "filename": doc.filename,
-                    "file_type": doc.file_type.value if doc.file_type else None,
-                    "chunk_content": chunk.content,
-                    "chunk_index": chunk.chunk_index,
-                    "similarity_score": float(similarity),
-                    "summary": version.data.get("summary") if version else None,
-                    "created_at": doc.created_at,
-                }
-            )
-
-        return results, total
 
     async def get_best_chunk_per_document(
         self,
@@ -186,25 +147,16 @@ class SearchRepository:
             ranked.order_by(desc("similarity")).subquery().lateral("ranked_subq")
         )
 
-        count_subq = (
-            select(
-                DocumentChunk.document_id,
-                func.max(
-                    1 - DocumentChunk.embedding.cosine_distance(query_embedding_param)
-                ).label("max_sim"),
-            )
+        count_stmt = (
+            select(func.count(func.distinct(DocumentChunk.document_id)))
             .join(Document, DocumentChunk.document_id == Document.id)
-            .where(
-                DocumentChunk.embedding.isnot(None),
-            )
-            .group_by(DocumentChunk.document_id)
+            .where(DocumentChunk.embedding.isnot(None))
         )
 
         if owner_id:
-            count_subq = count_subq.where(Document.owner_id == owner_id)
+            count_stmt = count_stmt.where(Document.owner_id == owner_id)
 
-        count_result = await self.session.execute(count_subq)
-        total = len(list(count_result.all()))
+        total = (await self.session.execute(count_stmt)).scalar() or 0
 
         best_per_doc = (
             select(

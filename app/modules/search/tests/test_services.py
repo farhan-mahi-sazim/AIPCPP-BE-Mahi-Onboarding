@@ -42,7 +42,7 @@ class TestSearchService:
             embeddings=embeddings,
         )
 
-        with patch("app.modules.search.services.litellm.embedding") as mock_embedding:
+        with patch("app.modules.search.services.litellm.aembedding") as mock_embedding:
             mock_embedding.return_value = MagicMock(data=MOCK_EMBEDDING_RESPONSE_DATA)
 
             service = SearchService(db_session)
@@ -61,7 +61,7 @@ class TestSearchService:
     async def test_search_empty_results(self, db_session):
         await ensure_user_exists(db_session)
 
-        with patch("app.modules.search.services.litellm.embedding") as mock_embedding:
+        with patch("app.modules.search.services.litellm.aembedding") as mock_embedding:
             mock_embedding.return_value = MagicMock(data=MOCK_EMBEDDING_RESPONSE_DATA)
 
             service = SearchService(db_session)
@@ -132,7 +132,7 @@ class TestSearchService:
 
         service = SearchService(db_session)
 
-        with patch("app.modules.search.services.litellm.embedding") as mock_embedding:
+        with patch("app.modules.search.services.litellm.aembedding") as mock_embedding:
             mock_embedding.side_effect = Exception("API Error")
 
             with pytest.raises(ValueError, match="Failed to generate embedding"):
@@ -167,7 +167,7 @@ class TestSearchService:
             embeddings=[[0.1] * 3072],
         )
 
-        with patch("app.modules.search.services.litellm.embedding") as mock_embedding:
+        with patch("app.modules.search.services.litellm.aembedding") as mock_embedding:
             mock_embedding.return_value = MagicMock(data=[{"embedding": [0.85] * 3072}])
 
             service = SearchService(db_session)
@@ -196,7 +196,7 @@ class TestSearchService:
             embeddings=embeddings,
         )
 
-        with patch("app.modules.search.services.litellm.embedding") as mock_embedding:
+        with patch("app.modules.search.services.litellm.aembedding") as mock_embedding:
             mock_embedding.return_value = MagicMock(data=MOCK_EMBEDDING_RESPONSE_DATA)
 
             service = SearchService(db_session)
@@ -235,7 +235,7 @@ class TestSearchService:
             embeddings=[[0.5] * 3072],
         )
 
-        with patch("app.modules.search.services.litellm.embedding") as mock_embedding:
+        with patch("app.modules.search.services.litellm.aembedding") as mock_embedding:
             mock_embedding.return_value = MagicMock(data=MOCK_EMBEDDING_RESPONSE_DATA)
 
             service = SearchService(db_session)

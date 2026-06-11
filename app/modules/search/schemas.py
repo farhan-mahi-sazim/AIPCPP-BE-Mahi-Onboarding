@@ -4,6 +4,21 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class TSearchRequest(BaseModel):
+    query: str = Field(..., min_length=1, description="Search query text")
+    limit: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description="Maximum number of results",
+    )
+    offset: int = Field(
+        default=0,
+        ge=0,
+        description="Number of results to skip",
+    )
+
+
 class TSearchMatchChunk(BaseModel):
     chunk_index: int
     highlight: str

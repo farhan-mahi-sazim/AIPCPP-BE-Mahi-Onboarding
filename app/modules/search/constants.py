@@ -1,11 +1,6 @@
-import os
-
 DEFAULT_SEARCH_LIMIT = 10
 DEFAULT_SEARCH_OFFSET = 0
 MAX_SEARCH_LIMIT = 100
-
-SYNTHESIS_TIMEOUT_SECONDS = int(os.getenv("SYNTHESIS_TIMEOUT_SECONDS", "15"))
-SYNTHESIS_MAX_CHUNKS = int(os.getenv("SYNTHESIS_MAX_CHUNKS", "5"))
 SYNTHESIS_PROMPT_TEMPLATE = """You are a helpful assistant answering questions based on provided document excerpts.
 
 Given the user's question and the most relevant excerpts from documents, provide a direct, concise answer (2-3 sentences maximum).

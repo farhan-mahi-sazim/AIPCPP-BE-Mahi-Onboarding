@@ -14,9 +14,7 @@ from app.modules.search.constants import (
     DEFAULT_SEARCH_OFFSET,
     MAX_SEARCH_LIMIT,
     STOP_WORDS,
-    SYNTHESIS_MAX_CHUNKS,
     SYNTHESIS_PROMPT_TEMPLATE,
-    SYNTHESIS_TIMEOUT_SECONDS,
     SearchError,
 )
 from app.modules.search.repositories import SearchRepository
@@ -57,7 +55,7 @@ class SearchService:
 
     async def _generate_query_embedding(self, query: str) -> list[float]:
         try:
-            response = litellm.embedding(
+            response = await litellm.aembedding(
                 model=settings.LITELLM_EMBEDDING_MODEL,
                 input=query,
                 timeout=settings.MODEL_EMBEDDING_TIMEOUT_SECONDS,
@@ -118,7 +116,7 @@ class SearchService:
 
         try:
             excerpts = []
-            for chunk in chunks[:SYNTHESIS_MAX_CHUNKS]:
+            for chunk in chunks[: settings.SYNTHESIS_MAX_CHUNKS]:
                 content = chunk.get("chunk_content", "")
                 if not SearchRepository.is_valid_chunk_content(content):
                     continue
@@ -133,7 +131,7 @@ class SearchService:
                 excerpts="\n\n---\n\n".join(excerpts),
             )
 
-            response = litellm.completion(
+            response = await litellm.acompletion(
                 model=settings.SEARCH_SYNTHESIS_MODEL,
                 messages=[
                     {
@@ -147,7 +145,7 @@ class SearchService:
                 ],
                 temperature=0.3,
                 max_tokens=150,
-                timeout=SYNTHESIS_TIMEOUT_SECONDS,
+                timeout=settings.SYNTHESIS_TIMEOUT_SECONDS,
             )
 
             answer = response.choices[0].message.content
@@ -226,7 +224,7 @@ class SearchService:
             cleaned_chunk = await self._cleanup_chunk_content(chunk, query_terms)
             cleaned.append(cleaned_chunk)
 
-        synthesis_chunks = cleaned[:SYNTHESIS_MAX_CHUNKS]
+        synthesis_chunks = cleaned[: settings.SYNTHESIS_MAX_CHUNKS]
         synthesis_answer = await self._synthesize(query, synthesis_chunks)
 
         search_results: list[TSearchDocumentResult] = []
