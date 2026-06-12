@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.enums.file_type import EFileType
@@ -11,8 +12,6 @@ from app.modules.search.tests.constants import DUMMY_USER_ID
 
 async def ensure_user_exists(db_session: AsyncSession):
     """Ensures the dummy test user exists in the test database."""
-    from sqlmodel import select
-
     result = await db_session.execute(select(User).where(User.id == DUMMY_USER_ID))
     user = result.scalar_one_or_none()
     if not user:

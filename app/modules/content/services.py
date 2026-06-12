@@ -46,14 +46,6 @@ class ContentService:
         self.job_repo = ProcessingJobRepository(session)
         self.progress_manager = progress_manager
 
-    @staticmethod
-    def _generate_s3_key(owner_id: uuid.UUID, file_id: uuid.UUID, filename: str) -> str:
-        return f"{owner_id}/{file_id}/{filename}"
-
-    @staticmethod
-    def _compute_file_hash(file_content: bytes) -> str:
-        return hashlib.sha256(file_content).hexdigest()
-
     def _get_file_type(self, filename: str) -> EFileType:
         extension = os.path.splitext(filename)[1].lower().lstrip(".")
         extension_map = {

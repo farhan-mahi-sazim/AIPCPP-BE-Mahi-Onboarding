@@ -14,6 +14,7 @@ from PIL import Image
 from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
+from app.common.celery_sse_bridge import publish_progress_update
 from app.common.enums.file_type import EFileType
 from app.common.enums.job_status import EJobStatus
 from app.common.enums.pipeline_stage import EPipelineStage
@@ -43,8 +44,6 @@ class ProcessingService:
         self.storage = StorageService()
 
     def process_extraction(self, document_id: uuid.UUID) -> str:
-        from app.common.celery_sse_bridge import publish_progress_update
-
         doc = self.doc_repo.get_by_id(document_id)
         if not doc:
             raise ValueError(f"Document {document_id} not found")
@@ -101,8 +100,7 @@ class ProcessingService:
                 extracted_text = pytesseract.image_to_string(image)
             except pytesseract.TesseractNotFoundError:
                 logger.warning(
-                    "Tesseract OCR not available for document %s. "
-                    "Install with: brew install tesseract",
+                    "Tesseract OCR not available for document %s. ",
                     doc.id,
                 )
                 extracted_text = f"[OCR unavailable for {doc.filename}]"
@@ -164,8 +162,6 @@ class ProcessingService:
             raise ValueError(f"DOC extraction failed: {str(e)}") from e
 
     def process_ai_analysis(self, document_id: uuid.UUID) -> str:
-        from app.common.celery_sse_bridge import publish_progress_update
-
         doc = self.doc_repo.get_by_id(document_id)
         if not doc or not doc.raw_text:
             raise ValueError(f"Document {document_id} has no extracted text")
@@ -265,8 +261,6 @@ class ProcessingService:
         return chunks
 
     def process_embeddings(self, document_id: uuid.UUID) -> str:
-        from app.common.celery_sse_bridge import publish_progress_update
-
         doc = self.doc_repo.get_by_id(document_id)
         if not doc or not doc.raw_text:
             raise ValueError(f"Document {document_id} has no extracted text")
@@ -402,8 +396,6 @@ class ProcessingService:
         Raises:
             ValueError: If any critical validation fails
         """
-        from app.common.celery_sse_bridge import publish_progress_update
-
         doc = self.doc_repo.get_by_id(document_id)
         if not doc:
             raise ValueError(f"Document {document_id} not found")

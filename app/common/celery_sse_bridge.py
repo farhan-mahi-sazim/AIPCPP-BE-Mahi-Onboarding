@@ -13,6 +13,7 @@ from app.common.enums.job_status import EJobStatus
 from app.common.enums.pipeline_stage import EPipelineStage
 from app.common.sse_manager import sse_manager
 from app.config.db import SyncSessionLocal
+from app.modules.content.repositories import ProcessingJobRepositorySync
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +36,6 @@ def publish_progress_to_db(
         stage: Current pipeline stage
         status: Current job status
     """
-    from app.modules.content.repositories import ProcessingJobRepositorySync
-
     try:
         with SyncSessionLocal() as session:
             job_repo = ProcessingJobRepositorySync(session)
