@@ -5,7 +5,7 @@ TEST_EMAIL = "test@example.com"
 TEST_FULL_NAME = "Test User"
 
 PDF_FILENAME = "test.pdf"
-PDF_CONTENT = b"fake pdf content"
+PDF_CONTENT = b"%PDF-1.4\n%fake pdf content"
 EXE_FILENAME = "test.exe"
 EXE_CONTENT = b"fake exe content"
 TXT_FILENAME = "test.txt"

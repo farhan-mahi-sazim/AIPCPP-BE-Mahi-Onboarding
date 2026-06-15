@@ -1,11 +1,13 @@
 import hashlib
 import logging
 import os
-import tempfile
 import uuid
+import zipfile
+from pathlib import Path
 
 from fastapi import HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.cache import cache_invalidate, cached
@@ -16,7 +18,12 @@ from app.common.sse_manager import SSEManager
 from app.common.storage import StorageService
 from app.models.document import Document, DocumentVersion
 from app.models.job import ProcessingJob
-from app.modules.content.constants import MAX_FILE_SIZE
+from app.modules.content.constants import (
+    FILE_MAGIC_SIGNATURES,
+    INVALID_FILE_CONTENT_MESSAGE,
+    MAGIC_BYTE_READ_SIZE,
+    MAX_FILE_SIZE,
+)
 from app.modules.content.exceptions import StorageError
 from app.modules.content.progress import create_progress_callback
 from app.modules.content.repositories import (
@@ -45,14 +52,6 @@ class ContentService:
         self.document_repo = DocumentRepository(session)
         self.job_repo = ProcessingJobRepository(session)
         self.progress_manager = progress_manager
-
-    @staticmethod
-    def _generate_s3_key(owner_id: uuid.UUID, file_id: uuid.UUID, filename: str) -> str:
-        return f"{owner_id}/{file_id}/{filename}"
-
-    @staticmethod
-    def _compute_file_hash(file_content: bytes) -> str:
-        return hashlib.sha256(file_content).hexdigest()
 
     def _get_file_type(self, filename: str) -> EFileType:
         extension = os.path.splitext(filename)[1].lower().lstrip(".")
@@ -110,6 +109,32 @@ class ContentService:
                 file.filename,
             )
 
+    @staticmethod
+    def _validate_magic_bytes(file_bytes: bytes, file_type: EFileType) -> None:
+        signatures = FILE_MAGIC_SIGNATURES.get(file_type, [])
+        if not signatures:
+            return
+        for offset, magic in signatures:
+            if len(file_bytes) >= offset + len(magic):
+                if file_bytes[offset : offset + len(magic)] == magic:
+                    return
+        raise ValueError(INVALID_FILE_CONTENT_MESSAGE.format(file_type=file_type.value))
+
+    @staticmethod
+    def _validate_docx(file_path: str) -> None:
+        try:
+            with zipfile.ZipFile(file_path, "r") as zf:
+                if "word/document.xml" not in zf.namelist():
+                    raise ValueError(
+                        INVALID_FILE_CONTENT_MESSAGE.format(
+                            file_type=EFileType.DOCX.value
+                        )
+                    )
+        except zipfile.BadZipFile:
+            raise ValueError(
+                INVALID_FILE_CONTENT_MESSAGE.format(file_type=EFileType.DOCX.value)
+            )
+
     async def get_job_by_document_id(
         self, document_id: uuid.UUID
     ) -> ProcessingJob | None:
@@ -143,6 +168,74 @@ class ContentService:
                 "Failed to trigger pipeline for document %s: %s", document_id, e
             )
 
+    async def _return_existing_or_raise(
+        self, file_hash: str, owner_id: uuid.UUID
+    ) -> TUploadResponse:
+        existing_doc = await self.document_repo.get_by_file_hash(file_hash, owner_id)
+        if not existing_doc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Duplicate file found but document is missing.",
+            )
+        existing_job = await self.job_repo.get_by_document_id(existing_doc.id)
+        if not existing_job:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Duplicate file found but job is missing.",
+            )
+        return TUploadResponse(document=existing_doc, job=existing_job)
+
+    async def _save_and_validate_upload(
+        self,
+        file: UploadFile,
+        file_type: EFileType,
+        upload_dir: Path,
+    ) -> tuple[str, str]:
+        hasher = hashlib.sha256()
+        temp_path = str(upload_dir / f"{uuid.uuid4()}.tmp")
+        with open(temp_path, "wb") as temp_file:
+            first_chunk = await file.read(MAGIC_BYTE_READ_SIZE)
+            if not first_chunk:
+                raise ValueError("Empty file")
+            self._validate_magic_bytes(first_chunk, file_type)
+            hasher.update(first_chunk)
+            temp_file.write(first_chunk)
+            total_bytes = len(first_chunk)
+            while chunk := await file.read(65536):
+                hasher.update(chunk)
+                temp_file.write(chunk)
+                total_bytes += len(chunk)
+                if total_bytes > MAX_FILE_SIZE:
+                    raise ValueError("File too large. Maximum size is 50MB.")
+        file_hash = hasher.hexdigest()
+        if file_type == EFileType.DOCX:
+            self._validate_docx(temp_path)
+        return temp_path, file_hash
+
+    async def _handle_dedup_race(
+        self,
+        file_hash: str,
+        owner_id: uuid.UUID,
+        s3_key: str,
+    ) -> TUploadResponse:
+        logger.info(
+            "Race condition on dedup for hash %s, fetching existing document",
+            file_hash,
+        )
+        try:
+            await run_in_threadpool(
+                self.storage_service.delete_file,
+                s3_key=s3_key,
+            )
+        except Exception as cleanup_error:
+            logger.error(
+                "Failed to cleanup S3 object after dedup race: %s. Error: %s",
+                s3_key,
+                cleanup_error,
+            )
+        await self.session.rollback()
+        return await self._return_existing_or_raise(file_hash, owner_id)
+
     @cache_invalidate(ECacheKeyPrefix.CONTENT_SUMMARIES.value)
     @cache_invalidate(ECacheKeyPrefix.SEARCH_RESULTS.value)
     async def upload_document(
@@ -153,21 +246,21 @@ class ContentService:
     ) -> TUploadResponse:
         self._validate_file_size_early(file)
 
-        extension = file.filename.split(".")[-1].lower()
+        safe_filename = Path(file.filename).name
+        extension = safe_filename.split(".")[-1].lower()
         file_type = self._get_file_type(f"file.{extension}")
 
         file_id = document_id or uuid.uuid4()
         s3_key = f"{owner_id}/{file_id}.{extension}"
 
-        hasher = hashlib.sha256()
-        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-            temp_path = temp_file.name
-            while chunk := await file.read(65536):
-                hasher.update(chunk)
-                temp_file.write(chunk)
-            file_hash = hasher.hexdigest()
-
+        temp_path = None
+        upload_dir = Path("/tmp/uploads")
+        upload_dir.mkdir(parents=True, exist_ok=True)
         try:
+            temp_path, file_hash = await self._save_and_validate_upload(
+                file, file_type, upload_dir
+            )
+
             existing_doc = await self.document_repo.get_by_file_hash(
                 file_hash, owner_id
             )
@@ -177,13 +270,7 @@ class ContentService:
                     file_hash,
                     existing_doc.id,
                 )
-                existing_job = await self.job_repo.get_by_document_id(existing_doc.id)
-                if not existing_job:
-                    raise HTTPException(
-                        status_code=status.HTTP_409_CONFLICT,
-                        detail="Duplicate file found but job is missing.",
-                    )
-                return TUploadResponse(document=existing_doc, job=existing_job)
+                return await self._return_existing_or_raise(file_hash, owner_id)
 
             progress_callback = create_progress_callback(
                 self.progress_manager, str(file_id), max_progress=50
@@ -203,17 +290,25 @@ class ContentService:
                     )
             except Exception as e:
                 logger.error("Failed to upload to S3: %s", e)
-                raise e
+                raise
 
             document = Document(
                 id=file_id,
                 owner_id=owner_id,
-                filename=file.filename,
+                filename=safe_filename,
                 s3_key=s3_key,
                 file_hash=file_hash,
                 file_type=file_type,
             )
-            created_doc = await self.document_repo.create(document)
+
+            try:
+                async with self.session.begin_nested():
+                    created_doc = await self.document_repo.create(document)
+            except IntegrityError as e:
+                pgcode = getattr(e.orig, "pgcode", None)
+                if pgcode != "23505":
+                    raise
+                return await self._handle_dedup_race(file_hash, owner_id, s3_key)
 
             job = ProcessingJob(
                 document_id=created_doc.id,
@@ -222,8 +317,8 @@ class ContentService:
             )
             created_job = await self.job_repo.create(job)
 
-            await self._trigger_pipeline(created_doc.id)
             await self.session.commit()
+            await self._trigger_pipeline(created_doc.id)
 
             if self.progress_manager:
                 await self.progress_manager.publish(
@@ -239,7 +334,7 @@ class ContentService:
 
         except Exception as e:
             logger.error(
-                "Pipeline trigger or DB commit failed for file %s. S3 key: %s. Error: %s",
+                "Upload failed for file %s. S3 key: %s. Error: %s",
                 file.filename,
                 s3_key,
                 str(e),
@@ -251,17 +346,18 @@ class ContentService:
                     self.storage_service.delete_file,
                     s3_key=s3_key,
                 )
-                logger.info(
-                    "Cleaned up S3 object after pipeline/commit failure: %s", s3_key
-                )
             except Exception as cleanup_error:
                 logger.error(
                     "Failed to cleanup S3 object after failure: %s. Error: %s",
                     s3_key,
-                    str(cleanup_error),
+                    cleanup_error,
                 )
 
-            raise e
+            raise
+
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                os.unlink(temp_path)
 
     async def get_all_summaries(
         self,
