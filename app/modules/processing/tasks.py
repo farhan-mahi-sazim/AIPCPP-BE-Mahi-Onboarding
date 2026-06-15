@@ -8,6 +8,7 @@ from app.common.enums.job_status import EJobStatus
 from app.common.enums.pipeline_stage import EPipelineStage
 from app.config.celery import celery_app
 from app.config.db import SyncSessionLocal
+from app.modules.content.repositories import ProcessingJobRepositorySync
 from app.modules.processing.services import ProcessingService
 
 logger = logging.getLogger(__name__)
@@ -40,8 +41,6 @@ def _mark_job_failed_on_failure(
 
     with SyncSessionLocal() as session:
         try:
-            from app.modules.content.repositories import ProcessingJobRepositorySync
-
             job_repo = ProcessingJobRepositorySync(session)
             job = job_repo.get_by_document_id(document_id)
             if job and job.status != EJobStatus.COMPLETED:

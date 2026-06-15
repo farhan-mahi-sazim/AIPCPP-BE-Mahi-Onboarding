@@ -14,6 +14,7 @@ from app.common.sse_manager import sse_manager
 from app.common.storage import StorageService, get_storage_service
 from app.config.db import get_db_session
 from app.models.document import DocumentChunk
+from app.models.job import ProcessingJob
 from app.modules.content.constants import DELETE_ERROR_MESSAGE, UPLOAD_ERROR_MESSAGE
 from app.modules.content.exceptions import StorageError
 from app.modules.content.schemas import (
@@ -290,8 +291,6 @@ async def debug_job(
     db_session: AsyncSession = Depends(get_db_session),
 ):
     """Debug endpoint to check processing job status."""
-    from app.models.job import ProcessingJob
-
     result = await db_session.execute(
         select(ProcessingJob).where(ProcessingJob.document_id == document_id)
     )
