@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,6 +17,11 @@ class Settings(BaseSettings):
 
     REDIS_URL: str = "redis://localhost:6379/0"
 
+    # Cache Settings
+    CACHE_ENABLED: bool = True
+    CACHE_TTL_DEFAULT: int = 300
+    CACHE_CONTENT_TTL: int = 3600
+
     # S3 / MinIO Settings
     S3_ENDPOINT_URL: str = "http://localhost:9000"
     S3_ACCESS_KEY: str = "minioadmin"
@@ -27,9 +34,10 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str | None = None
     LITELLM_MODEL: str = "gemini/gemini-2.5-flash"
     LITELLM_EMBEDDING_MODEL: str = "gemini/gemini-embedding-2"
+    SEARCH_SYNTHESIS_MODEL: str = "gemini/gemini-2.0-flash"
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=Path(__file__).resolve().parents[2] / ".env",
         env_ignore_empty=True,
         extra="ignore",
     )
@@ -38,6 +46,8 @@ class Settings(BaseSettings):
     EMBEDDING_DIMENSION: int = 3072
     AI_ANALYSIS_TIMEOUT_SECONDS: int = 30
     MODEL_EMBEDDING_TIMEOUT_SECONDS: int = 20
+    SYNTHESIS_TIMEOUT_SECONDS: int = 15
+    SYNTHESIS_MAX_CHUNKS: int = 5
 
     @property
     def database_url(self) -> str:

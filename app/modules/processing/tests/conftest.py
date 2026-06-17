@@ -3,14 +3,13 @@ import pytest
 from app.config.test_db import (
     create_sync_engine,
     create_sync_session_factory,
+    get_test_db_url,
     setup_test_tables,
 )
 
 
 @pytest.fixture
 def sync_engine():
-    from app.config.test_db import get_test_db_url
-
     engine = create_sync_engine(get_test_db_url(sync=True))
     yield engine
     engine.dispose()

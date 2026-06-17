@@ -8,6 +8,8 @@ from fastapi import HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.common.cache import cache_invalidate, cached
+from app.common.cache.constants import CACHE_CONTENT_TTL, ECacheKeyPrefix
 from app.common.enums.file_type import EFileType
 from app.common.enums.job_status import EJobStatus
 from app.common.sse_manager import SSEManager
@@ -43,14 +45,6 @@ class ContentService:
         self.document_repo = DocumentRepository(session)
         self.job_repo = ProcessingJobRepository(session)
         self.progress_manager = progress_manager
-
-    @staticmethod
-    def _generate_s3_key(owner_id: uuid.UUID, file_id: uuid.UUID, filename: str) -> str:
-        return f"{owner_id}/{file_id}/{filename}"
-
-    @staticmethod
-    def _compute_file_hash(file_content: bytes) -> str:
-        return hashlib.sha256(file_content).hexdigest()
 
     def _get_file_type(self, filename: str) -> EFileType:
         extension = os.path.splitext(filename)[1].lower().lstrip(".")
@@ -141,6 +135,8 @@ class ContentService:
                 "Failed to trigger pipeline for document %s: %s", document_id, e
             )
 
+    @cache_invalidate(ECacheKeyPrefix.CONTENT_SUMMARIES.value)
+    @cache_invalidate(ECacheKeyPrefix.SEARCH_RESULTS.value)
     async def upload_document(
         self,
         file: UploadFile,
@@ -324,6 +320,10 @@ class ContentDocumentService:
         await self.session.delete(version)
         await self.session.flush()
 
+    @cached(
+        prefix=ECacheKeyPrefix.CONTENT_SUMMARIES.value,
+        ttl=CACHE_CONTENT_TTL,
+    )
     async def get_all_summaries(
         self,
         page: int = 1,
@@ -391,6 +391,8 @@ class ContentDocumentService:
         doc, version = row
         return self._build_summary_read(doc, version)
 
+    @cache_invalidate(ECacheKeyPrefix.CONTENT_SUMMARIES.value)
+    @cache_invalidate(ECacheKeyPrefix.SEARCH_RESULTS.value)
     async def delete_document(self, document_id: uuid.UUID) -> None:
         doc = await self.document_repo.get_by_id(document_id)
         if not doc:

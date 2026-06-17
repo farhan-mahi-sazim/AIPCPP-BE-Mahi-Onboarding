@@ -1,10 +1,12 @@
+import uuid
 from collections.abc import AsyncGenerator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config.settings import settings
+from app.models.user import User
 
 engine = create_async_engine(
     settings.database_url,
@@ -42,12 +44,6 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
 
 async def init_db() -> None:
     """Initialize database and seed default user for development."""
-    import uuid
-
-    from sqlmodel import select
-
-    from app.models.user import User
-
     dummy_user_id = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
     async with AsyncSessionLocal() as session:

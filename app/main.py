@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from app.config.db import engine, init_db
 from app.modules.content import routes as content_routes
 from app.modules.healthcheck import routes as healthcheck_routes
+from app.modules.search import routes as search_routes
 from app.modules.versions import routes as version_routes
 
 # Placeholder imports for future modules
@@ -51,3 +52,4 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(healthcheck_routes.router, prefix="/api/v1")
 app.include_router(content_routes.router, prefix="/api/v1/content", tags=["Content"])
 app.include_router(version_routes.router, prefix="/api/v1/versions", tags=["Versions"])
+app.include_router(search_routes.router, prefix="/api/v1", tags=["Search"])

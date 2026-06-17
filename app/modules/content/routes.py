@@ -5,6 +5,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.enums.file_type import EFileType
@@ -12,6 +13,8 @@ from app.common.enums.job_status import EJobStatus
 from app.common.sse_manager import sse_manager
 from app.common.storage import StorageService, get_storage_service
 from app.config.db import get_db_session
+from app.models.document import DocumentChunk
+from app.models.job import ProcessingJob
 from app.modules.content.constants import DELETE_ERROR_MESSAGE, UPLOAD_ERROR_MESSAGE
 from app.modules.content.exceptions import StorageError
 from app.modules.content.schemas import (
@@ -251,3 +254,60 @@ async def delete_document(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete document",
         )
+
+
+@router.get("/debug/chunks/{document_id}")
+async def debug_chunks(
+    document_id: uuid.UUID,
+    db_session: AsyncSession = Depends(get_db_session),
+):
+    """Debug endpoint to check document chunks and embeddings."""
+    result = await db_session.execute(
+        select(DocumentChunk).where(DocumentChunk.document_id == document_id)
+    )
+    chunks = result.scalars().all()
+
+    return {
+        "document_id": str(document_id),
+        "chunk_count": len(chunks),
+        "chunks": [
+            {
+                "id": str(c.id),
+                "chunk_index": c.chunk_index,
+                "content_length": len(c.content) if c.content else 0,
+                "has_embedding": c.embedding is not None,
+                "embedding_dim": (
+                    len(c.embedding) if c.embedding is not None else None
+                ),
+            }
+            for c in chunks
+        ],
+    }
+
+
+@router.get("/debug/job/{document_id}")
+async def debug_job(
+    document_id: uuid.UUID,
+    db_session: AsyncSession = Depends(get_db_session),
+):
+    """Debug endpoint to check processing job status."""
+    result = await db_session.execute(
+        select(ProcessingJob).where(ProcessingJob.document_id == document_id)
+    )
+    job = result.scalar_one_or_none()
+
+    if not job:
+        return {"document_id": str(document_id), "job": None}
+
+    return {
+        "document_id": str(document_id),
+        "job": {
+            "id": str(job.id),
+            "status": job.status.value if job.status else None,
+            "stage": job.stage.value if job.stage else None,
+            "retry_count": job.retry_count,
+            "error_log": job.error_log,
+            "created_at": job.created_at.isoformat() if job.created_at else None,
+            "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+        },
+    }

@@ -88,3 +88,27 @@ check:
 	just lint
 	just lint-app
 	just format-check
+
+# Redis utilities
+redis-keys pattern="*":
+	redis-cli KEYS "{{pattern}}"
+
+redis-get key:
+	redis-cli GET "{{key}}"
+
+redis-scan pattern="*":
+	redis-cli --scan --pattern "{{pattern}}" | head -100
+
+redis-flush-pattern pattern="*":
+	redis-cli KEYS "{{pattern}}" | xargs redis-cli DEL
+
+redis-version-search-keys:
+    echo "=== content keys ===" && \
+    redis-cli --scan --pattern "content*" | head -50 && \
+    echo "=== Version keys ===" && \
+    redis-cli --scan --pattern "version*" | head -50 && \
+    echo "=== Search keys ===" && \
+    redis-cli --scan --pattern "search:*" | head -50
+
+get-gemini-model-list:
+	uv run python scratch/list_models.py

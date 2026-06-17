@@ -5,6 +5,7 @@ import pytest
 from app.common.enums.file_type import EFileType
 from app.common.enums.version_source import EVersionSource
 from app.models.document import Document, DocumentVersion
+from app.models.user import User
 from app.modules.versions.schemas import TVersionOverride, TVersionUpdate
 from app.modules.versions.services import VersionService
 
@@ -16,8 +17,6 @@ class TestVersionService:
 
     @pytest.fixture
     async def sample_user(self, db_session):
-        from app.models.user import User
-
         user = User(
             id=uuid.uuid4(),
             email=f"test_{uuid.uuid4().hex[:8]}@example.com",
