@@ -16,6 +16,12 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 
+def _json_encoder(obj: Any) -> str:
+    if isinstance(obj, (uuid_module.UUID, datetime, date)):
+        return obj.isoformat() if hasattr(obj, "isoformat") else str(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
 class CacheService:
     def __init__(self, redis_client: Redis | None = None) -> None:
         self._client = redis_client
@@ -50,19 +56,11 @@ class CacheService:
             return False
 
         try:
-
-            def json_encoder(obj: Any) -> str:
-                if isinstance(obj, (uuid_module.UUID, datetime, date)):
-                    return obj.isoformat() if hasattr(obj, "isoformat") else str(obj)
-                raise TypeError(
-                    f"Object of type {type(obj).__name__} is not JSON serializable"
-                )
-
             if isinstance(value, BaseModel):
                 serialized = value.model_dump(mode="json")
             else:
                 serialized = value
-            await client.setex(key, ttl, json.dumps(serialized, default=json_encoder))
+            await client.setex(key, ttl, json.dumps(serialized, default=_json_encoder))
             return True
         except Exception as e:
             logger.warning("Cache set failed for key %s: %s", key, str(e))

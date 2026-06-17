@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,8 +29,8 @@ async def ensure_user_exists(db_session: AsyncSession):
 
 async def create_document_with_chunks(
     db_session: AsyncSession,
-    owner_id: uuid4,
-    document_id: uuid4,
+    owner_id: UUID,
+    document_id: UUID,
     filename: str,
     chunks_content: list[str],
     embeddings: list[list[float]],
