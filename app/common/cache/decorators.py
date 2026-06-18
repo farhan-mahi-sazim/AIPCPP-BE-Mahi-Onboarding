@@ -4,8 +4,6 @@ import logging
 from collections.abc import Callable, Coroutine
 from typing import Any, TypeVar
 
-from pydantic import BaseModel
-
 from app.common.cache.constants import CACHE_DEFAULT_TTL
 from app.common.cache.services import CacheService, get_cache_service
 from app.config.settings import settings
@@ -85,14 +83,7 @@ def cached(
             result = await func(*args, **kwargs)
 
             if result is not None:
-                try:
-                    serialized = result if isinstance(result, BaseModel) else result
-                    await cache_service.set(cache_key, serialized, ttl)
-                except TypeError:
-                    serialized = (
-                        result.model_dump() if isinstance(result, BaseModel) else result
-                    )
-                    await cache_service.set(cache_key, serialized, ttl)
+                await cache_service.set(cache_key, result, ttl)
                 logger.debug(
                     "Cache miss, stored result for key: %s (TTL: %ds)", cache_key, ttl
                 )
