@@ -25,5 +25,5 @@ FILE_MAGIC_SIGNATURES: dict[EFileType, list[tuple[int, bytes]]] = {
     ],
     EFileType.DOCX: [(0, b"PK\x03\x04")],
     EFileType.DOC: [(0, b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1")],
-    EFileType.TEXT: [],  # No reliable magic bytes for plain text
+    EFileType.TEXT: [],
 }

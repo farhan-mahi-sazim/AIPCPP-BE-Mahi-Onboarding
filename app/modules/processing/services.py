@@ -58,13 +58,11 @@ class ProcessingService:
         if job:
             job.stage = EPipelineStage.EXTRACTION
             job.status = EJobStatus.PROCESSING
-            job.progress = 20
             self.session.commit()
 
-            # Publish progress update
             publish_progress_update(
                 document_id,
-                progress=20,
+                progress=0,
                 stage=EPipelineStage.EXTRACTION,
                 status=EJobStatus.PROCESSING,
             )
@@ -83,6 +81,15 @@ class ProcessingService:
 
         doc.raw_text = extracted_text
         self.session.commit()
+
+        if job:
+            job.progress = 40
+            self.session.commit()
+            publish_progress_update(
+                document_id,
+                progress=40,
+                stage=EPipelineStage.EXTRACTION,
+            )
 
         logger.info("Extraction completed for document %s", document_id)
         return str(document_id)
@@ -169,13 +176,11 @@ class ProcessingService:
         job = self.job_repo.get_by_document_id(document_id)
         if job:
             job.stage = EPipelineStage.AI_TASK
-            job.progress = 50
             self.session.commit()
 
-            # Publish progress update
             publish_progress_update(
                 document_id,
-                progress=50,
+                progress=0,
                 stage=EPipelineStage.AI_TASK,
             )
 
@@ -268,13 +273,11 @@ class ProcessingService:
         job = self.job_repo.get_by_document_id(document_id)
         if job:
             job.stage = EPipelineStage.EMBEDDING
-            job.progress = 75
             self.session.commit()
 
-            # Publish progress update
             publish_progress_update(
                 document_id,
-                progress=75,
+                progress=0,
                 stage=EPipelineStage.EMBEDDING,
             )
 
@@ -314,7 +317,6 @@ class ProcessingService:
 
                 if job:
                     job.stage = EPipelineStage.EMBEDDING
-                    job.progress = 75
 
                 self.session.commit()
 
@@ -408,10 +410,19 @@ class ProcessingService:
             self._mark_job_failed(job, str(e))
             raise
 
+        if job:
+            job.stage = EPipelineStage.PERSISTENCE
+            job.progress = 70
+        self.session.commit()
+        publish_progress_update(
+            document_id,
+            progress=70,
+            stage=EPipelineStage.PERSISTENCE,
+        )
+
         # All validations passed - mark as COMPLETED
         if job:
             job.status = EJobStatus.COMPLETED
-            job.stage = EPipelineStage.PERSISTENCE
             job.progress = 100
 
         self.session.commit()

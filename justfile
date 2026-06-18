@@ -57,7 +57,7 @@ test-e2e:
     uv run python -m pytest tests
 
 celery-worker:
-    uv run celery -A app.config.celery worker --loglevel=info
+	uv run celery -A app.config.celery worker --loglevel=info -E
 
 celery-active:
     uv run celery -A app.config.celery inspect active
@@ -67,6 +67,9 @@ celery-stats:
 
 celery-purge:
     uv run celery -A app.config.celery purge -f
+
+celery-flower:
+    uv run python -m flower -A app.config.celery flower --port=5555 --address=0.0.0.0
 
 lint:
 	uv run ruff check .

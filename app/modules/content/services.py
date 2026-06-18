@@ -1,20 +1,27 @@
+import asyncio
+import contextlib
 import hashlib
+import json
 import logging
 import os
 import uuid
 import zipfile
+from collections.abc import AsyncGenerator
 from pathlib import Path
 
+from celery import chain, group
 from fastapi import HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.cache import cache_invalidate, cached
+from app.common.cache.connection import CacheConnectionManager
 from app.common.cache.constants import CACHE_CONTENT_TTL, ECacheKeyPrefix
 from app.common.enums.file_type import EFileType
 from app.common.enums.job_status import EJobStatus
-from app.common.sse_manager import SSEManager
+from app.common.progress_events import progress_channel_name
+from app.common.sse_manager import SSEManager, sse_manager
 from app.common.storage import StorageService
 from app.models.document import Document, DocumentVersion
 from app.models.job import ProcessingJob
@@ -36,8 +43,31 @@ from app.modules.content.schemas import (
     TSummaryRead,
     TUploadResponse,
 )
+from app.modules.processing.tasks import (
+    analyze_content_task,
+    extract_text_task,
+    generate_embeddings_task,
+    validate_and_finalize_job_task,
+)
 
 logger = logging.getLogger(__name__)
+
+
+async def _cleanup_s3_file(
+    storage_service: StorageService, s3_key: str, context: str = ""
+) -> None:
+    try:
+        await run_in_threadpool(
+            storage_service.delete_file,
+            s3_key=s3_key,
+        )
+    except Exception as cleanup_error:
+        logger.error(
+            "Failed to cleanup S3 object%s: %s. Error: %s",
+            f" after {context}" if context else "",
+            s3_key,
+            cleanup_error,
+        )
 
 
 class ContentService:
@@ -79,35 +109,9 @@ class ContentService:
         return extension_map[extension]
 
     def _validate_file_size_early(self, file: UploadFile) -> None:
-        content_length = None
-        try:
-            headers = getattr(file, "headers", None)
-            if headers:
-                content_length = (
-                    headers.get("content-length")
-                    if isinstance(headers, dict)
-                    else getattr(headers, "get", lambda x: None)("content-length")
-                )
-        except Exception as e:
-            logger.debug("Could not read headers from file: %s", e)
-
-        if content_length:
-            try:
-                file_size = int(content_length)
-                if file_size > MAX_FILE_SIZE:
-                    raise ValueError("File too large. Maximum size is 50MB.")
-            except ValueError as e:
-                if "Maximum size" in str(e):
-                    raise
-                logger.warning(
-                    "Could not parse Content-Length for %s, will validate during upload",
-                    file.filename,
-                )
-        else:
-            logger.debug(
-                "Content-Length header missing or empty for %s. Size validation during upload.",
-                file.filename,
-            )
+        print(f"file size: {file.size}")
+        if file.size is not None and file.size > MAX_FILE_SIZE:
+            raise ValueError("validated early: File too large. Maximum size is 50MB.")
 
     @staticmethod
     def _validate_magic_bytes(file_bytes: bytes, file_type: EFileType) -> None:
@@ -140,18 +144,95 @@ class ContentService:
     ) -> ProcessingJob | None:
         return await self.job_repo.get_by_document_id(document_id)
 
+    async def stream_job_progress(
+        self, document_id: uuid.UUID
+    ) -> AsyncGenerator[str, None]:
+        job = await self.get_job_by_document_id(document_id)
+        if not job:
+            error_payload = {"error": "Job not found"}
+            yield f"data: {json.dumps(error_payload)}\n\n"
+            return
+
+        document_id_str = str(document_id)
+        await sse_manager.publish(
+            document_id_str,
+            progress=job.progress,
+            stage=job.stage.value if job.stage else None,
+            status=job.status.value,
+            error_log=job.error_log,
+        )
+
+        redis_mirror_task = asyncio.create_task(
+            self._mirror_redis_progress_to_sse(document_id_str)
+        )
+
+        try:
+            async for event in sse_manager.subscribe(document_id_str):
+                yield f"data: {json.dumps(event)}\n\n"
+                if event.get("status") in {
+                    EJobStatus.COMPLETED.value,
+                    EJobStatus.FAILED.value,
+                }:
+                    break
+        except asyncio.CancelledError:
+            logger.info("SSE client disconnected for document %s", document_id)
+            raise
+        finally:
+            redis_mirror_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await redis_mirror_task
+
+    async def _mirror_redis_progress_to_sse(self, document_id: str) -> None:
+        redis_client = await CacheConnectionManager.get_connection()
+        if redis_client is None:
+            logger.debug("Redis unavailable for SSE mirroring: %s", document_id)
+            return
+
+        pubsub = redis_client.pubsub()
+        channel = progress_channel_name(document_id)
+
+        try:
+            await pubsub.subscribe(channel)
+            async for message in pubsub.listen():
+                if message.get("type") != "message":
+                    continue
+
+                try:
+                    payload = json.loads(message.get("data", "{}"))
+                except json.JSONDecodeError:
+                    logger.debug(
+                        "Ignoring malformed progress payload for %s", document_id
+                    )
+                    continue
+
+                if payload.get("document_id") != document_id:
+                    continue
+
+                await sse_manager.publish(
+                    document_id,
+                    progress=int(payload.get("progress", 0)),
+                    stage=payload.get("stage"),
+                    status=payload.get("status"),
+                    error_log=payload.get("error_log"),
+                )
+
+                if payload.get("status") in {
+                    EJobStatus.COMPLETED.value,
+                    EJobStatus.FAILED.value,
+                }:
+                    break
+        except asyncio.CancelledError:
+            raise
+        finally:
+            try:
+                await pubsub.unsubscribe(channel)
+            except Exception:
+                logger.debug("Redis pubsub unsubscribe failed for %s", document_id)
+            await pubsub.close()
+
     async def _trigger_pipeline(self, document_id: uuid.UUID) -> None:
         """Triggers the background processing pipeline for a document."""
         try:
-            from celery import chain, group
-
-            from app.modules.processing.tasks import (
-                analyze_content_task,
-                extract_text_task,
-                generate_embeddings_task,
-                validate_and_finalize_job_task,
-            )
-
             # Optimization: Parallelize Analysis and Embedding after Extraction
             # Finalize task ensures synchronization and state correctness
             processing_pipeline = chain(
@@ -169,14 +250,8 @@ class ContentService:
             )
 
     async def _return_existing_or_raise(
-        self, file_hash: str, owner_id: uuid.UUID
+        self, existing_doc: Document
     ) -> TUploadResponse:
-        existing_doc = await self.document_repo.get_by_file_hash(file_hash, owner_id)
-        if not existing_doc:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Duplicate file found but document is missing.",
-            )
         existing_job = await self.job_repo.get_by_document_id(existing_doc.id)
         if not existing_job:
             raise HTTPException(
@@ -222,19 +297,16 @@ class ContentService:
             "Race condition on dedup for hash %s, fetching existing document",
             file_hash,
         )
-        try:
-            await run_in_threadpool(
-                self.storage_service.delete_file,
-                s3_key=s3_key,
-            )
-        except Exception as cleanup_error:
-            logger.error(
-                "Failed to cleanup S3 object after dedup race: %s. Error: %s",
-                s3_key,
-                cleanup_error,
-            )
+        await _cleanup_s3_file(self.storage_service, s3_key, "dedup race")
         await self.session.rollback()
-        return await self._return_existing_or_raise(file_hash, owner_id)
+
+        existing_doc = await self.document_repo.get_by_file_hash(file_hash, owner_id)
+        if not existing_doc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Duplicate file found but document is missing.",
+            )
+        return await self._return_existing_or_raise(existing_doc)
 
     @cache_invalidate(ECacheKeyPrefix.CONTENT_SUMMARIES.value)
     @cache_invalidate(ECacheKeyPrefix.SEARCH_RESULTS.value)
@@ -270,10 +342,14 @@ class ContentService:
                     file_hash,
                     existing_doc.id,
                 )
-                return await self._return_existing_or_raise(file_hash, owner_id)
+                return await self._return_existing_or_raise(existing_doc)
 
+            total_bytes = os.path.getsize(temp_path)
             progress_callback = create_progress_callback(
-                self.progress_manager, str(file_id), max_progress=50
+                self.progress_manager,
+                str(file_id),
+                max_progress=40,
+                total_bytes=total_bytes,
             )
 
             content_type = file.content_type or "application/octet-stream"
@@ -320,13 +396,6 @@ class ContentService:
             await self.session.commit()
             await self._trigger_pipeline(created_doc.id)
 
-            if self.progress_manager:
-                await self.progress_manager.publish(
-                    str(created_doc.id),
-                    progress=0,
-                    stage="processing_started",
-                )
-
             return TUploadResponse(
                 document=created_doc,
                 job=created_job,
@@ -340,18 +409,7 @@ class ContentService:
                 str(e),
             )
             await self.session.rollback()
-
-            try:
-                await run_in_threadpool(
-                    self.storage_service.delete_file,
-                    s3_key=s3_key,
-                )
-            except Exception as cleanup_error:
-                logger.error(
-                    "Failed to cleanup S3 object after failure: %s. Error: %s",
-                    s3_key,
-                    cleanup_error,
-                )
+            await _cleanup_s3_file(self.storage_service, s3_key, "upload failure")
 
             raise
 
