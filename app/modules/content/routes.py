@@ -122,12 +122,17 @@ async def get_job_progress(
         )
 
     document_id_str = str(document_id)
-    sse_disconnected = sse_manager.was_disconnected(document_id_str) and not sse_manager.is_connected(document_id_str)
+    sse_disconnected = sse_manager.was_disconnected(
+        document_id_str
+    ) and not sse_manager.is_connected(document_id_str)
 
     if sse_disconnected:
         sse_manager.record_poll(document_id_str)
         if sse_manager.should_stop_polling(document_id_str):
-            logger.info("Stopping polling for %s after SSE disconnect threshold", document_id_str)
+            logger.info(
+                "Stopping polling for %s after SSE disconnect threshold",
+                document_id_str,
+            )
             raise HTTPException(
                 status_code=status.HTTP_410_GONE,
                 detail="SSE connection closed; polling exhausted",

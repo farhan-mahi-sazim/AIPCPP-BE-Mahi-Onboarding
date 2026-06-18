@@ -30,11 +30,9 @@ class SSEManager:
         self._poll_count_after_disconnect.pop(document_id, None)
 
         try:
-            # Send the last known event if it exists (helps clients catch up)
             if document_id in self._last_events:
                 yield self._last_events[document_id]
 
-            # Wait for new events
             while True:
                 event = await queue.get()
                 yield event
@@ -67,7 +65,9 @@ class SSEManager:
         count = self._poll_count_after_disconnect.get(document_id, 0)
         if count >= MAX_SSE_POLLS_AFTER_DISCONNECT:
             return True
-        elapsed = (datetime.now(UTC) - self._disconnected_at[document_id]).total_seconds()
+        elapsed = (
+            datetime.now(UTC) - self._disconnected_at[document_id]
+        ).total_seconds()
         if elapsed >= SSE_DISCONNECT_GRACE_SECONDS:
             return True
         return False

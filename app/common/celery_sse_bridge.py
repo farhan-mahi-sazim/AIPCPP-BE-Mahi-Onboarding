@@ -17,7 +17,7 @@ from app.common.enums.pipeline_stage import EPipelineStage
 from app.common.progress_events import build_progress_event, progress_channel_name
 from app.config.db import SyncSessionLocal
 from app.config.settings import settings
-from app.modules.content.repositories import ProcessingJobRepositorySync
+from app.modules.content.sync_services import JobProgressServiceSync
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +42,8 @@ def publish_progress_to_db(
     """
     try:
         with SyncSessionLocal() as session:
-            job_repo = ProcessingJobRepositorySync(session)
-            job = job_repo.get_by_document_id(document_id)
+            job_service = JobProgressServiceSync(session)
+            job = job_service.get_job_by_document_id(document_id)
 
             if job:
                 job.progress = progress

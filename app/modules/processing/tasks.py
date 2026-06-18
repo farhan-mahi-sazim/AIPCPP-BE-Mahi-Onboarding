@@ -9,15 +9,12 @@ from app.common.enums.job_status import EJobStatus
 from app.common.enums.pipeline_stage import EPipelineStage
 from app.config.celery import celery_app
 from app.config.db import SyncSessionLocal
-from app.modules.content.repositories import ProcessingJobRepositorySync
 from app.modules.processing.services import ProcessingService
 
 logger = logging.getLogger(__name__)
 
 
-def _mark_job_failed(
-    document_id: uuid.UUID, reason: str = ""
-) -> None:
+def _mark_job_failed(document_id: uuid.UUID, reason: str = "") -> None:
     """Mark a job as FAILED in the database and publish via Redis/SSE."""
     try:
         publish_progress_update(
@@ -26,13 +23,20 @@ def _mark_job_failed(
             stage=EPipelineStage.PERSISTENCE,
             status=EJobStatus.FAILED,
         )
-        logger.info("Marked job FAILED for %s%s", document_id, f": {reason}" if reason else "")
+        logger.info(
+            "Marked job FAILED for %s%s", document_id, f": {reason}" if reason else ""
+        )
     except Exception as e:
         logger.error("Failed to mark job FAILED for %s: %s", document_id, e)
 
 
 def _mark_job_failed_on_failure(
-    self: Task, exc: Exception, task_id: str, args: tuple[Any, ...], kwargs: dict[str, Any], einfo: Any
+    self: Task,
+    exc: Exception,
+    task_id: str,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    einfo: Any,
 ) -> None:
     """Callback to mark job as FAILED when a task fails after all retries."""
     retries = self.request.retries
@@ -183,14 +187,18 @@ def validate_and_finalize_job_task(self: Any, *args: Any, **kwargs: Any) -> str 
 
     # Check if any parallel task reported an error
     group_results = args[0] if args and isinstance(args[0], list) else []
-    error_items = [r for r in group_results if isinstance(r, str) and r.startswith(ERROR_PREFIX)]
+    error_items = [
+        r for r in group_results if isinstance(r, str) and r.startswith(ERROR_PREFIX)
+    ]
 
     with SyncSessionLocal() as session:
         try:
             if error_items:
                 error_descriptions = [r.split(":", 2)[-1] for r in error_items]
                 logger.error(
-                    "Parallel tasks failed for %s: %s", document_id, "; ".join(error_descriptions)
+                    "Parallel tasks failed for %s: %s",
+                    document_id,
+                    "; ".join(error_descriptions),
                 )
                 _mark_job_failed(document_id, "; ".join(error_descriptions))
                 return None
