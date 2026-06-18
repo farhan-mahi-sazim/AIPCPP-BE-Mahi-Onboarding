@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
@@ -29,9 +29,9 @@ class TestSearchService:
             "Product description and pricing details",
         ]
         embeddings = [
-            [0.1] * 3072,
-            [0.2] * 3072,
-            [0.3] * 3072,
+            [0.1] * 768,
+            [0.2] * 768,
+            [0.3] * 768,
         ]
         await create_document_with_chunks(
             db_session,
@@ -42,8 +42,10 @@ class TestSearchService:
             embeddings=embeddings,
         )
 
-        with patch("app.modules.search.services.litellm.aembedding") as mock_embedding:
-            mock_embedding.return_value = MagicMock(data=MOCK_EMBEDDING_RESPONSE_DATA)
+        with patch(
+            "app.modules.search.services.LocalEmbeddingService.embed_query"
+        ) as mock_embedding:
+            mock_embedding.return_value = MOCK_EMBEDDING_RESPONSE_DATA
 
             service = SearchService(db_session)
             response = await service.search(
@@ -61,8 +63,10 @@ class TestSearchService:
     async def test_search_empty_results(self, db_session):
         await ensure_user_exists(db_session)
 
-        with patch("app.modules.search.services.litellm.aembedding") as mock_embedding:
-            mock_embedding.return_value = MagicMock(data=MOCK_EMBEDDING_RESPONSE_DATA)
+        with patch(
+            "app.modules.search.services.LocalEmbeddingService.embed_query"
+        ) as mock_embedding:
+            mock_embedding.return_value = MOCK_EMBEDDING_RESPONSE_DATA
 
             service = SearchService(db_session)
             response = await service.search(
@@ -132,7 +136,9 @@ class TestSearchService:
 
         service = SearchService(db_session)
 
-        with patch("app.modules.search.services.litellm.aembedding") as mock_embedding:
+        with patch(
+            "app.modules.search.services.LocalEmbeddingService.embed_query"
+        ) as mock_embedding:
             mock_embedding.side_effect = Exception("API Error")
 
             with pytest.raises(ValueError, match="Failed to generate embedding"):
@@ -155,7 +161,7 @@ class TestSearchService:
             document_id=MOCK_DOCUMENT_ID,
             filename="invoice.pdf",
             chunks_content=chunks_content_1,
-            embeddings=[[0.9] * 3072],
+            embeddings=[[0.9] * 768],
         )
 
         await create_document_with_chunks(
@@ -164,11 +170,13 @@ class TestSearchService:
             document_id=MOCK_DOCUMENT_ID_2,
             filename="contract.pdf",
             chunks_content=chunks_content_2,
-            embeddings=[[0.1] * 3072],
+            embeddings=[[0.1] * 768],
         )
 
-        with patch("app.modules.search.services.litellm.aembedding") as mock_embedding:
-            mock_embedding.return_value = MagicMock(data=[{"embedding": [0.85] * 3072}])
+        with patch(
+            "app.modules.search.services.LocalEmbeddingService.embed_query"
+        ) as mock_embedding:
+            mock_embedding.return_value = [0.85] * 768
 
             service = SearchService(db_session)
             response = await service.search(
@@ -185,7 +193,7 @@ class TestSearchService:
         await ensure_user_exists(db_session)
 
         chunks = [f"Document chunk {i} with content" for i in range(10)]
-        embeddings = [[float(i) / 10] * 3072 for i in range(10)]
+        embeddings = [[float(i) / 10] * 768 for i in range(10)]
 
         await create_document_with_chunks(
             db_session,
@@ -196,8 +204,10 @@ class TestSearchService:
             embeddings=embeddings,
         )
 
-        with patch("app.modules.search.services.litellm.aembedding") as mock_embedding:
-            mock_embedding.return_value = MagicMock(data=MOCK_EMBEDDING_RESPONSE_DATA)
+        with patch(
+            "app.modules.search.services.LocalEmbeddingService.embed_query"
+        ) as mock_embedding:
+            mock_embedding.return_value = MOCK_EMBEDDING_RESPONSE_DATA
 
             service = SearchService(db_session)
             response = await service.search(
@@ -232,11 +242,13 @@ class TestSearchService:
             document_id=MOCK_DOCUMENT_ID,
             filename="other_user_doc.pdf",
             chunks_content=["This is another user's document"],
-            embeddings=[[0.5] * 3072],
+            embeddings=[[0.5] * 768],
         )
 
-        with patch("app.modules.search.services.litellm.aembedding") as mock_embedding:
-            mock_embedding.return_value = MagicMock(data=MOCK_EMBEDDING_RESPONSE_DATA)
+        with patch(
+            "app.modules.search.services.LocalEmbeddingService.embed_query"
+        ) as mock_embedding:
+            mock_embedding.return_value = MOCK_EMBEDDING_RESPONSE_DATA
 
             service = SearchService(db_session)
             response = await service.search(

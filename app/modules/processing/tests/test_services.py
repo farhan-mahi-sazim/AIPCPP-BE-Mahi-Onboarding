@@ -186,9 +186,11 @@ class TestProcessingService:
         }
         return mock_response
 
-    @patch("app.modules.processing.services.litellm.embedding")
-    def test_process_embeddings_success(self, mock_embedding, service, sync_db_session):
-        mock_embedding.return_value = MagicMock(data=[{"embedding": MOCK_EMBEDDING}])
+    @patch("app.modules.processing.services.LocalEmbeddingService")
+    def test_process_embeddings_success(
+        self, mock_embedding_svc, service, sync_db_session
+    ):
+        mock_embedding_svc.return_value.embed.return_value = [MOCK_EMBEDDING]
 
         doc = Document(
             id=MOCK_DOCUMENT_ID,

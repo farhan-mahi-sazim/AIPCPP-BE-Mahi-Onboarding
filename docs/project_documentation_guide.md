@@ -86,7 +86,7 @@ erDiagram
         uuid document_id FK
         int chunk_index
         string content
-        vector embedding "3072 dims"
+        vector embedding "768 dims"
         json chunk_metadata
         datetime created_at
     }
@@ -160,7 +160,7 @@ sequenceDiagram
         Celery->>Analyzer: analyze_content_task
         Celery->>Embedder: generate_embeddings_task
         Note over Analyzer: LiteLLM Fallback Chain
-        Note over Embedder: LiteLLM Embeddings (3072 dims)
+        Note over Embedder: Local Embeddings (BAAI/bge-base-en-v1.5, 768 dims)
         Analyzer-->>Celery: DocumentVersion Created
         Embedder-->>Celery: DocumentChunks Saved
     end
@@ -175,7 +175,7 @@ sequenceDiagram
 ### C. The `search` Module
 Orchestrates intelligent semantic retrieval using pgvector.
 * **Similarity Search Logic**:
-  * Receives a search prompt, generates its corresponding 3,072-dimensional vector embedding using the embedding model (`gemini-embedding-2`), and performs a cosine-distance search.
+  * Receives a search prompt, generates its corresponding 768-dimensional vector embedding using the local embedding model (`BAAI/bge-base-en-v1.5`), and performs a cosine-distance search.
   * Cosine similarity is computed directly in SQL using the operator `<=>` (cosine distance) and mapped as `1 - distance`.
   * Allows pagination, strict document owner validation, and joins the related `document_versions` table to yield summaries inline.
 * **Performance Enhancements**:
@@ -258,7 +258,7 @@ AIPCPP is built to survive large loads and external system faults:
 | Scenario / Threat | Countermeasure | Implementation details |
 |---|---|---|
 | **Large Ingestions (PDFs/Images)** | Asynchronous Offloading | Workers execute slow operations (OCR, PDF reading, Vector embeddings) in Celery background threads. |
-| **Model Invocations Hanging** | Enforced Deadlines | Tasks are constrained by strict timeouts (30s for Analysis, 20s for Embeddings). |
+| **Model Invocations Hanging** | Enforced Deadlines | AI tasks are constrained by strict timeouts (30s for Analysis). |
 | **Model Rate Limits / Outages** | Fallback Cascades | LiteLLM cycles through fallback options (Gemini 2.0 -> Gemini Pro -> alternate providers) dynamically. |
 | **Network & Connection Blips** | Jittered Backoffs | Celery tasks execute up to 5 retries with exponential backoffs and randomized jitter intervals. |
 | **Hot Path Search Queries** | Redis Caching Decorators | Scoped caches for search keys and timelines; instant programmatic invalidate prefixes upon edits. |

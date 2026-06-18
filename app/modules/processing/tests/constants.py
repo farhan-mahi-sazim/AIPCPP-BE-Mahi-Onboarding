@@ -23,6 +23,5 @@ MOCK_AI_RESPONSE = {
     "category": TEST_CATEGORY,
 }
 
-MOCK_EMBEDDING = [
-    0.1
-] * 3072  # Updated to match settings.EMBEDDING_DIMENSION (Gemini-2 standard)
+# BAAI/bge-base-en-v1.5 standard dimension
+MOCK_EMBEDDING = [0.1] * 768

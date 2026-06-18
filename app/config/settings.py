@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     DB_PASSWORD: str = "postgres"
     DB_NAME: str = "aipcpp_db"
 
-    TEST_DB_PORT: int = 5435
+    TEST_DB_PORT: int = 5433
 
     REDIS_URL: str = "redis://localhost:6379/0"
 
@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str | None = None
     GEMINI_API_KEY: str | None = None
     LITELLM_MODEL: str = "gemini/gemini-2.5-flash"
-    LITELLM_EMBEDDING_MODEL: str = "gemini/gemini-embedding-2"
+    LOCAL_EMBEDDING_MODEL: str = "BAAI/bge-base-en-v1.5"
     SEARCH_SYNTHESIS_MODEL: str = "gemini/gemini-2.0-flash"
 
     model_config = SettingsConfigDict(
@@ -42,10 +42,9 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Semantic Search Layer (3072 is standard for Gemini-2 embeddings)
-    EMBEDDING_DIMENSION: int = 3072
+    # Semantic Search Layer
+    EMBEDDING_DIMENSION: int = 768
     AI_ANALYSIS_TIMEOUT_SECONDS: int = 30
-    MODEL_EMBEDDING_TIMEOUT_SECONDS: int = 20
     SYNTHESIS_TIMEOUT_SECONDS: int = 15
     SYNTHESIS_MAX_CHUNKS: int = 5
 

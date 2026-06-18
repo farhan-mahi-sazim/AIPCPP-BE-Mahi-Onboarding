@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.common.embedding import LocalEmbeddingService
 from app.config.db import engine, init_db
 from app.modules.content import routes as content_routes
 from app.modules.healthcheck import routes as healthcheck_routes
@@ -27,6 +28,9 @@ logger = logging.getLogger(__name__)
 async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Starting up...")
     await init_db()
+    # Preload local embedding model on startup to avoid cold-start issues
+    # and thread-local client session closures in background worker threads.
+    LocalEmbeddingService.preload()
     yield
     logger.info("Shutting down...")
     await engine.dispose()

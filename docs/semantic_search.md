@@ -5,7 +5,7 @@ This document describes the semantic search feature that allows users to search 
 ## Overview
 
 The search feature uses **semantic similarity** rather than keyword matching. When a user submits a search query:
-1. The query text is converted to an embedding vector using the configured embedding model (LiteLLM)
+1. The query text is converted to an embedding vector using the configured local embedding model (sentence-transformers)
 2. The vector is compared against stored document chunk embeddings using **cosine similarity**
 3. Results are ranked by similarity score and returned with document metadata
 
@@ -16,13 +16,13 @@ sequenceDiagram
     participant Client
     participant API as FastAPI
     participant Service as SearchService
-    participant LiteLLM
+    participant LocalEmbedder as LocalEmbeddingService
     participant DB as Postgres/pgvector
 
     Client->>API: POST /api/v1/search
     API->>Service: search(query, owner_id, limit, offset)
-    Service->>LiteLLM: Generate query embedding
-    LiteLLM-->>Service: embedding vector
+    Service->>LocalEmbedder: Generate query embedding
+    LocalEmbedder-->>Service: embedding vector
     Service->>DB: Vector similarity search (cosine distance)
     DB-->>Service: ranked results
     Service-->>API: TSearchResponse
@@ -89,7 +89,7 @@ sequenceDiagram
 - Supports pagination (limit/offset)
 
 #### SearchService (`services.py`)
-- Generates query embedding using LiteLLM
+- Generates query embedding using LocalEmbeddingService
 - Validates search parameters (query not empty, limit within bounds)
 - Orchestrates the search flow
 - Transforms raw results into typed response models
@@ -98,15 +98,14 @@ sequenceDiagram
 
 Settings in `app/config/settings.py`:
 ```python
-LITELLM_EMBEDDING_MODEL: str = "gemini/gemini-embedding-2"  # Embedding model
-EMBEDDING_DIMENSION: int = 3072  # Vector dimensions (Gemini-2)
-MODEL_EMBEDDING_TIMEOUT_SECONDS: int = 20  # Timeout for embedding calls
+LOCAL_EMBEDDING_MODEL: str = "BAAI/bge-base-en-v1.5"  # Local embedding model
+EMBEDDING_DIMENSION: int = 768  # Vector dimensions (BAAI/bge-base-en-v1.5)
 ```
 
 ## How It Works
 
 ### 1. Embedding Generation
-The search service sends the query text to LiteLLM, which generates a 3072-dimensional embedding vector using the configured model (default: `gemini/gemini-embedding-2`).
+The search service uses `LocalEmbeddingService` to generate a 768-dimensional embedding vector locally using the configured model (default: `BAAI/bge-base-en-v1.5`).
 
 ### 2. Vector Similarity Search
 The repository executes a SQL query using pgvector's `cosine_distance`:
@@ -150,11 +149,11 @@ If a document hasn't been processed, it won't appear in search results.
 |-------|-------|--------------|
 | Empty query | Query string is empty or whitespace | 422 (Pydantic validation) |
 | Invalid limit | Limit < 1 or > 100 | 422 (Pydantic validation) |
-| Embedding failed | LiteLLM API error | 500 |
+| Embedding failed | Local inference error | 500 |
 
 ## Limitations
 
-1. **Cold start**: First search on a new query requires an API call to generate the embedding
+1. **Model loading**: First use of `LocalEmbeddingService` dynamically loads the model into memory. Subsequent calls perform fast in-memory inference.
 2. **Model dependency**: Search quality depends on the embedding model's capabilities
 3. **Chunk-level results**: Returns matching chunks, not complete documents (may return multiple chunks from same document)
 4. **Owner filtering**: Only searches documents owned by the current user (or specified owner)

@@ -15,6 +15,7 @@ from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
 from app.common.celery_sse_bridge import publish_progress_update
+from app.common.embedding import LocalEmbeddingService
 from app.common.enums.file_type import EFileType
 from app.common.enums.job_status import EJobStatus
 from app.common.enums.pipeline_stage import EPipelineStage
@@ -285,59 +286,39 @@ class ProcessingService:
 
         text_chunks = self._chunk_text(doc.raw_text)
 
-        embedding_models = [
-            settings.LITELLM_EMBEDDING_MODEL,
-            "gemini/gemini-embedding-001",
-        ]
+        try:
+            logger.info("Attempting local Embeddings generation")
+            service = LocalEmbeddingService()
+            embeddings = service.embed(text_chunks)
 
-        last_exception = None
-        for model_name in embedding_models:
-            try:
-                logger.info("Attempting Embeddings with model: %s", model_name)
-                response = litellm.embedding(
-                    model=model_name,
-                    input=text_chunks,
-                    timeout=settings.MODEL_EMBEDDING_TIMEOUT_SECONDS,
+            db_chunks = [
+                DocumentChunk(
+                    id=uuid.uuid4(),
+                    document_id=document_id,
+                    chunk_index=i,
+                    content=text_chunks[i],
+                    embedding=embeddings[i],
                 )
+                for i in range(len(text_chunks))
+            ]
 
-                embeddings = [r["embedding"] for r in response.data]
+            self.chunk_repo.create_many(db_chunks)
 
-                db_chunks = [
-                    DocumentChunk(
-                        id=uuid.uuid4(),
-                        document_id=document_id,
-                        chunk_index=i,
-                        content=text_chunks[i],
-                        embedding=embeddings[i],
-                    )
-                    for i in range(len(text_chunks))
-                ]
+            if job:
+                job.stage = EPipelineStage.EMBEDDING
 
-                self.chunk_repo.create_many(db_chunks)
+            self.session.commit()
 
-                if job:
-                    job.stage = EPipelineStage.EMBEDDING
+            logger.info(
+                "Embedding generation completed for document %s using local model %s",
+                document_id,
+                settings.LOCAL_EMBEDDING_MODEL,
+            )
+            return str(document_id)
 
-                self.session.commit()
-
-                logger.info(
-                    "Embedding generation completed for document %s using %s",
-                    document_id,
-                    model_name,
-                )
-                return str(document_id)
-
-            except Exception as e:
-                logger.warning(
-                    "Embedding model %s failed: %s. Trying next...", model_name, e
-                )
-                last_exception = e
-                continue
-
-        logger.error("All embedding models failed for %s", document_id)
-        if last_exception:
-            raise last_exception
-        raise RuntimeError("No embedding models available to try")
+        except Exception as e:
+            logger.error("Local embedding generation failed for %s: %s", document_id, e)
+            raise
 
     def _mark_job_failed(self, job: ProcessingJob | None, reason: str) -> None:
         """Mark job as FAILED and commit changes."""

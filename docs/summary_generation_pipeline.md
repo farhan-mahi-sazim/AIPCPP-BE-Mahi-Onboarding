@@ -19,14 +19,15 @@ graph TD
     F --> H
     H --> I[Pipeline Complete]
 
-    subgraph "External Dependencies"
+    subgraph "External/Local Dependencies"
         L[MinIO / S3]
         M[Gemini API / LiteLLM]
+        N[Local SentenceTransformers]
     end
 
     B -.-> L
     E -.-> M
-    F -.-> M
+    F -.-> N
 ```
 
 ---
@@ -58,7 +59,8 @@ graph TD
 ### 3. Vector Embeddings (`generate_embeddings_task`)
 
 - **Responsibility**: Converts the extracted text into high-dimensional vectors for semantic search.
-- **Dimensions**: 3072 (optimized for Gemini-2).
+- **Dimensions**: 768 (optimized for BAAI/bge-base-en-v1.5).
+- **Inference**: Done locally in-process using the `sentence-transformers` library (sync call running directly in the Celery worker).
 - **Output**: Populates the `document_chunks` table with `pgvector` compatible embeddings.
 
 ### 4. Validate & Finalize (`validate_and_finalize_job_task`)
@@ -78,7 +80,7 @@ graph TD
 | :------------------ | :------------------------------------------------------------------------------------------------------------------- |
 | **Retries**         | 5 retries per task with randomized jitter to prevent "thundering herd" issues.                                       |
 | **Backoff**         | Exponential increase in wait time (up to 15 minutes for Analysis).                                                   |
-| **Timeouts**        | Strict timeouts (30s for Analysis, 20s for Embeddings) to prevent hanging workers.                                   |
+| **Timeouts**        | Strict timeout (30s for Analysis) to prevent hanging workers.                                                       |
 | **Status Tracking** | Job is marked **COMPLETED** by the finalizer once all outputs exist; intermediate stages update `stage` as they run. |
 
 ## Error Handling

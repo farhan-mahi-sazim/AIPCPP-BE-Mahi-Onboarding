@@ -4,10 +4,12 @@ import re
 import uuid
 
 import litellm
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.cache import cached
 from app.common.cache.constants import CACHE_SEARCH_TTL, ECacheKeyPrefix
+from app.common.embedding import LocalEmbeddingService
 from app.config.settings import settings
 from app.modules.search.constants import (
     DEFAULT_SEARCH_LIMIT,
@@ -55,13 +57,8 @@ class SearchService:
 
     async def _generate_query_embedding(self, query: str) -> list[float]:
         try:
-            response = await litellm.aembedding(
-                model=settings.LITELLM_EMBEDDING_MODEL,
-                input=query,
-                timeout=settings.MODEL_EMBEDDING_TIMEOUT_SECONDS,
-            )
-            embeddings = [r["embedding"] for r in response.data]
-            return embeddings[0]
+            service = LocalEmbeddingService()
+            return await run_in_threadpool(service.embed_query, query)
         except Exception as e:
             logger.error("Failed to generate query embedding: %s", str(e))
             raise ValueError(SearchError.EMBEDDING_FAILED)
