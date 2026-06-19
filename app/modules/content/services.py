@@ -232,9 +232,19 @@ class ContentService:
 
     async def _trigger_pipeline(self, document_id: uuid.UUID) -> None:
         """Triggers the background processing pipeline for a document."""
+        job = await self.job_repo.get_by_document_id(document_id)
+        if job and job.status == EJobStatus.COMPLETED:
+            logger.info(
+                "Pipeline already completed for document %s, skipping", document_id
+            )
+            return
+        if job and job.status == EJobStatus.PROCESSING:
+            logger.info(
+                "Pipeline already in progress for document %s, skipping", document_id
+            )
+            return
+
         try:
-            # Optimization: Parallelize Analysis and Embedding after Extraction
-            # Finalize task ensures synchronization and state correctness
             processing_pipeline = chain(
                 extract_text_task.s(str(document_id)),
                 group(analyze_content_task.s(), generate_embeddings_task.s()),
@@ -388,7 +398,7 @@ class ContentService:
 
             job = ProcessingJob(
                 document_id=created_doc.id,
-                status=EJobStatus.PROCESSING,
+                status=EJobStatus.PENDING,
                 progress=0,
             )
             created_job = await self.job_repo.create(job)

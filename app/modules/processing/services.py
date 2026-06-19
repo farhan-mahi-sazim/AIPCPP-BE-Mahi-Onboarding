@@ -2,6 +2,7 @@ import io
 import json
 import logging
 import os
+import re
 import tempfile
 import uuid
 import zipfile
@@ -62,7 +63,7 @@ class ProcessingService:
 
             publish_progress_update(
                 document_id,
-                progress=0,
+                progress=40,
                 stage=EPipelineStage.EXTRACTION,
                 status=EJobStatus.PROCESSING,
             )
@@ -83,11 +84,11 @@ class ProcessingService:
         self.session.commit()
 
         if job:
-            job.progress = 40
+            job.progress = 60
             self.session.commit()
             publish_progress_update(
                 document_id,
-                progress=40,
+                progress=60,
                 stage=EPipelineStage.EXTRACTION,
             )
 
@@ -178,12 +179,6 @@ class ProcessingService:
             job.stage = EPipelineStage.AI_TASK
             self.session.commit()
 
-            publish_progress_update(
-                document_id,
-                progress=0,
-                stage=EPipelineStage.AI_TASK,
-            )
-
         models_to_try = [
             settings.LITELLM_MODEL,
             "gemini/gemini-2.0-flash",
@@ -235,6 +230,15 @@ class ProcessingService:
                 doc.current_version_id = ai_version.id
                 self.session.commit()
 
+                if job:
+                    job.progress = 80
+                    self.session.commit()
+                publish_progress_update(
+                    document_id,
+                    progress=80,
+                    stage=EPipelineStage.AI_TASK,
+                )
+
                 logger.info(
                     "AI Analysis completed for document %s using %s",
                     document_id,
@@ -257,12 +261,36 @@ class ProcessingService:
     def _chunk_text(
         self, text: str, chunk_size: int = 1000, overlap: int = 200
     ) -> list[str]:
-        chunks = []
-        start = 0
-        while start < len(text):
-            end = start + chunk_size
-            chunks.append(text[start:end])
-            start += chunk_size - overlap
+        sentences = re.split(r"(?<=[.?!])\s+", text)
+        sentences = [s.strip() for s in sentences if s.strip()]
+
+        chunks: list[str] = []
+        current_chunk: list[str] = []
+        current_len = 0
+
+        for sentence in sentences:
+            sentence_len = len(sentence)
+            if current_len + sentence_len > chunk_size and current_chunk:
+                chunks.append(" ".join(current_chunk))
+                overlap_sentences: list[str] = []
+                overlap_len = 0
+                for s in reversed(current_chunk):
+                    if overlap_len + len(s) > overlap:
+                        break
+                    overlap_sentences.insert(0, s)
+                    overlap_len += len(s)
+                current_chunk = list(overlap_sentences)
+                current_len = overlap_len
+
+            current_chunk.append(sentence)
+            current_len += sentence_len
+
+        if current_chunk:
+            chunks.append(" ".join(current_chunk))
+
+        if not chunks:
+            return [text]
+
         return chunks
 
     def process_embeddings(self, document_id: uuid.UUID) -> str:
@@ -274,12 +302,6 @@ class ProcessingService:
         if job:
             job.stage = EPipelineStage.EMBEDDING
             self.session.commit()
-
-            publish_progress_update(
-                document_id,
-                progress=0,
-                stage=EPipelineStage.EMBEDDING,
-            )
 
         self.chunk_repo.delete_by_document_id(document_id)
 
@@ -319,6 +341,15 @@ class ProcessingService:
                     job.stage = EPipelineStage.EMBEDDING
 
                 self.session.commit()
+
+                if job:
+                    job.progress = 90
+                    self.session.commit()
+                publish_progress_update(
+                    document_id,
+                    progress=90,
+                    stage=EPipelineStage.EMBEDDING,
+                )
 
                 logger.info(
                     "Embedding generation completed for document %s using %s",
@@ -412,11 +443,11 @@ class ProcessingService:
 
         if job:
             job.stage = EPipelineStage.PERSISTENCE
-            job.progress = 70
+            job.progress = 95
         self.session.commit()
         publish_progress_update(
             document_id,
-            progress=70,
+            progress=95,
             stage=EPipelineStage.PERSISTENCE,
         )
 
