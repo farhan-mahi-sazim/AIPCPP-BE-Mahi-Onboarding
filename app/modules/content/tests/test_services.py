@@ -43,7 +43,7 @@ class TestContentService:
 
         assert response.document.filename == TEST_FILENAME
         assert response.document.file_type == EFileType.PDF
-        assert response.job.status == EJobStatus.PROCESSING
+        assert response.job.status == EJobStatus.PENDING
 
         mock_storage.upload_file.assert_called_once()
 
