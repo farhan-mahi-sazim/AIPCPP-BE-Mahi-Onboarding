@@ -340,6 +340,13 @@ class ProcessingService:
                     stage=EPipelineStage.EMBEDDING,
                 )
 
+                logger.info(
+                    "Embedding generation completed for document %s using %s",
+                    document_id,
+                    progress=90,
+                    stage=EPipelineStage.EMBEDDING,
+                )
+
             logger.info(
                 "Embedding generation completed for document %s using local model %s",
                 document_id,
