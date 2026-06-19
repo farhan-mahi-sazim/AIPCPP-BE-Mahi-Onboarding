@@ -123,9 +123,16 @@ class TestContentService:
         service = ContentService(db_session, mock_storage)
         stream = service.stream_job_progress(document_id)
 
-        first_payload = json.loads((await stream.__anext__()).removeprefix("data: "))
-        assert first_payload["status"] == EJobStatus.PROCESSING.value
-        assert first_payload["stage"] == EPipelineStage.EXTRACTION.value
+        # First event is the preamble "connected" event
+        preamble = json.loads((await stream.__anext__()).removeprefix("data: "))
+        assert preamble["type"] == "connected"
+        assert preamble["status"] == EJobStatus.PROCESSING.value
+
+        # Second event is the cached job state from sse_manager._last_events
+        cached = json.loads((await stream.__anext__()).removeprefix("data: "))
+        assert cached["status"] == EJobStatus.PROCESSING.value
+        assert cached["stage"] == EPipelineStage.EXTRACTION.value
+        assert cached["progress"] == 12
 
         await local_manager.publish(
             str(document_id),
@@ -137,6 +144,3 @@ class TestContentService:
         final_payload = json.loads((await stream.__anext__()).removeprefix("data: "))
         assert final_payload["status"] == EJobStatus.COMPLETED.value
         assert final_payload["progress"] == 100
-
-        with pytest.raises(StopAsyncIteration):
-            await stream.__anext__()

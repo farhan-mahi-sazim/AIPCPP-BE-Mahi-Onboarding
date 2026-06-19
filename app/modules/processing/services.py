@@ -182,8 +182,8 @@ class ProcessingService:
 
         models_to_try = [
             settings.LITELLM_MODEL,
-            "gemini/gemini-2.0-flash",
-            "gemini/gemini-pro-latest",
+            "gemini/gemma-4-31b-it",
+            "gemini/gemma-4-31b-it",
         ]
 
         last_exception = None
@@ -335,13 +335,6 @@ class ProcessingService:
                     job.progress = 90
                     self.session.commit()
                 publish_progress_update(
-                    document_id,
-                    progress=90,
-                    stage=EPipelineStage.EMBEDDING,
-                )
-
-                logger.info(
-                    "Embedding generation completed for document %s using %s",
                     document_id,
                     progress=90,
                     stage=EPipelineStage.EMBEDDING,

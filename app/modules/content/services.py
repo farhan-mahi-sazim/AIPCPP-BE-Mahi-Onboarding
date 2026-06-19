@@ -7,6 +7,7 @@ import os
 import uuid
 import zipfile
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 from pathlib import Path
 
 from celery import chain, group
@@ -154,6 +155,7 @@ class ContentService:
             return
 
         document_id_str = str(document_id)
+
         await sse_manager.publish(
             document_id_str,
             progress=job.progress,
@@ -166,14 +168,38 @@ class ContentService:
             self._mirror_redis_progress_to_sse(document_id_str)
         )
 
+        yield f"data: {json.dumps({'type': 'connected', 'document_id': document_id_str, 'stage': job.stage.value if job.stage else None, 'status': job.status.value, 'progress': job.progress})}\n\n"
+
+        logger.info(
+            "SSE stream starting for %s (status=%s, progress=%d)",
+            document_id_str,
+            job.status.value,
+            job.progress,
+        )
+
         try:
             async for event in sse_manager.subscribe(document_id_str):
+                logger.info(
+                    "SSE stream yielding event for %s: status=%s, progress=%d, stage=%s",
+                    document_id_str,
+                    event.get("status"),
+                    event.get("progress"),
+                    event.get("stage"),
+                )
                 yield f"data: {json.dumps(event)}\n\n"
                 if event.get("status") in {
                     EJobStatus.COMPLETED.value,
                     EJobStatus.FAILED.value,
                 }:
-                    break
+                    while True:
+                        try:
+                            await asyncio.sleep(30)
+                            yield ": keepalive\n\n"
+                        except asyncio.CancelledError:
+                            logger.info(
+                                "SSE client disconnected for document %s", document_id
+                            )
+                            return
         except asyncio.CancelledError:
             logger.info("SSE client disconnected for document %s", document_id)
             raise
@@ -182,7 +208,27 @@ class ContentService:
             with contextlib.suppress(asyncio.CancelledError):
                 await redis_mirror_task
 
+    async def _publish_terminal_state_from_db(self, document_id: str) -> bool:
+        try:
+            job = await self.job_repo.get_by_document_id(uuid.UUID(document_id))
+            if job and job.status in (EJobStatus.COMPLETED, EJobStatus.FAILED):
+                await sse_manager.publish(
+                    document_id,
+                    progress=job.progress,
+                    stage=job.stage.value if job.stage else None,
+                    status=job.status.value,
+                    error_log=job.error_log,
+                )
+                return True
+        except Exception as e:
+            logger.debug("Failed to check terminal state for %s: %s", document_id, e)
+        return False
+
     async def _mirror_redis_progress_to_sse(self, document_id: str) -> None:
+        terminal = await self._publish_terminal_state_from_db(document_id)
+        if terminal:
+            return
+
         redis_client = await CacheConnectionManager.get_connection()
         if redis_client is None:
             logger.debug("Redis unavailable for SSE mirroring: %s", document_id)

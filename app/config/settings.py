@@ -44,7 +44,7 @@ class Settings(BaseSettings):
 
     # Semantic Search Layer
     EMBEDDING_DIMENSION: int = 768
-    AI_ANALYSIS_TIMEOUT_SECONDS: int = 30
+    AI_ANALYSIS_TIMEOUT_SECONDS: int = 60
     SYNTHESIS_TIMEOUT_SECONDS: int = 15
     SYNTHESIS_MAX_CHUNKS: int = 5
 
