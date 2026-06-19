@@ -1,5 +1,3 @@
-import asyncio
-import json
 import logging
 import uuid
 
@@ -9,7 +7,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.enums.file_type import EFileType
-from app.common.enums.job_status import EJobStatus
 from app.common.sse_manager import sse_manager
 from app.common.storage import StorageService, get_storage_service
 from app.config.db import get_db_session
@@ -123,12 +120,31 @@ async def get_job_progress(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Job not found"
         )
+
+    document_id_str = str(document_id)
+    sse_disconnected = sse_manager.was_disconnected(
+        document_id_str
+    ) and not sse_manager.is_connected(document_id_str)
+
+    if sse_disconnected:
+        sse_manager.record_poll(document_id_str)
+        if sse_manager.should_stop_polling(document_id_str):
+            logger.info(
+                "Stopping polling for %s after SSE disconnect threshold",
+                document_id_str,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_410_GONE,
+                detail="SSE connection closed; polling exhausted",
+            )
+
     return TJobProgressRead(
         job_id=job.id,
         status=job.status,
         progress=job.progress,
         stage=job.stage,
         error_log=job.error_log,
+        sse_disconnected=sse_disconnected,
     )
 
 
@@ -150,39 +166,8 @@ async def stream_job_progress(
             status_code=status.HTTP_404_NOT_FOUND, detail="Job not found"
         )
 
-    async def event_generator():
-        last_payload: dict | None = None
-
-        try:
-            while True:
-                job = await service.get_job_by_document_id(document_id)
-                if not job:
-                    error_payload = {"error": "Job not found"}
-                    yield f"data: {json.dumps(error_payload)}\n\n"
-                    break
-
-                payload = {
-                    "job_id": str(job.id),
-                    "status": job.status.value,
-                    "progress": job.progress,
-                    "stage": job.stage.value if job.stage else None,
-                    "error_log": job.error_log,
-                }
-
-                if payload != last_payload:
-                    last_payload = payload
-                    yield f"data: {json.dumps(payload)}\n\n"
-
-                if job.status in {EJobStatus.COMPLETED, EJobStatus.FAILED}:
-                    break
-
-                await asyncio.sleep(1)
-        except asyncio.CancelledError:
-            logger.info("SSE client disconnected for document %s", document_id)
-            raise
-
     return StreamingResponse(
-        event_generator(),
+        service.stream_job_progress(document_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -198,7 +183,7 @@ async def stream_job_progress(
 async def upload_document(
     file: UploadFile = File(...),
     document_id: uuid.UUID | None = Query(
-        None, description="Optional pre-generated document ID for progress streaming"
+        None, description="Optional pre-generated document ID for upload progress"
     ),
     db_session: AsyncSession = Depends(get_db_session),
     storage_service: StorageService = Depends(get_storage_service),
@@ -210,6 +195,7 @@ async def upload_document(
     Maximum file size: 50MB
 
     Returns the created document and processing job with status.
+    Pass document_id when you want to open the progress stream before upload finishes.
     Connect to /api/v1/content/jobs/{document_id}/progress/stream for real-time upload progress.
     """
     service = ContentService(db_session, storage_service, sse_manager)

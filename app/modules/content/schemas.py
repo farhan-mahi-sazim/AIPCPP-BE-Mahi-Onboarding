@@ -38,6 +38,7 @@ class TJobProgressRead(BaseModel):
     progress: int
     stage: EPipelineStage | None = None
     error_log: dict | None = None
+    sse_disconnected: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 

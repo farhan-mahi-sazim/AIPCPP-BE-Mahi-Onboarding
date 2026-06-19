@@ -10,7 +10,8 @@ logger = logging.getLogger(__name__)
 def create_progress_callback(
     progress_manager: SSEManager | None,
     document_id: str,
-    max_progress: int = 50,
+    max_progress: int = 40,
+    total_bytes: int | None = None,
 ) -> Callable[[int], None] | None:
     """Creates a thread-safe sync callback that schedules an async SSE task."""
     if not progress_manager:
@@ -24,8 +25,13 @@ def create_progress_callback(
         )
         return None
 
-    def callback(current_progress: int) -> None:
-        progress_value = current_progress if current_progress > 0 else max_progress
+    def callback(bytes_transferred: int) -> None:
+        if total_bytes and total_bytes > 0:
+            progress_value = min(
+                int(bytes_transferred * max_progress / total_bytes), max_progress
+            )
+        else:
+            progress_value = max_progress
 
         coroutine = progress_manager.publish(
             str(document_id),

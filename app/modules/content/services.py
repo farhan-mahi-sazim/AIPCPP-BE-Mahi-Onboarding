@@ -1,22 +1,36 @@
+import asyncio
+import contextlib
 import hashlib
+import json
 import logging
 import os
-import tempfile
 import uuid
+import zipfile
+from collections.abc import AsyncGenerator
+from pathlib import Path
 
+from celery import chain, group
 from fastapi import HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.cache import cache_invalidate, cached
+from app.common.cache.connection import CacheConnectionManager
 from app.common.cache.constants import CACHE_CONTENT_TTL, ECacheKeyPrefix
 from app.common.enums.file_type import EFileType
 from app.common.enums.job_status import EJobStatus
-from app.common.sse_manager import SSEManager
+from app.common.progress_events import progress_channel_name
+from app.common.sse_manager import SSEManager, sse_manager
 from app.common.storage import StorageService
 from app.models.document import Document, DocumentVersion
 from app.models.job import ProcessingJob
-from app.modules.content.constants import MAX_FILE_SIZE
+from app.modules.content.constants import (
+    FILE_MAGIC_SIGNATURES,
+    INVALID_FILE_CONTENT_MESSAGE,
+    MAGIC_BYTE_READ_SIZE,
+    MAX_FILE_SIZE,
+)
 from app.modules.content.exceptions import StorageError
 from app.modules.content.progress import create_progress_callback
 from app.modules.content.repositories import (
@@ -29,8 +43,31 @@ from app.modules.content.schemas import (
     TSummaryRead,
     TUploadResponse,
 )
+from app.modules.processing.tasks import (
+    analyze_content_task,
+    extract_text_task,
+    generate_embeddings_task,
+    validate_and_finalize_job_task,
+)
 
 logger = logging.getLogger(__name__)
+
+
+async def _cleanup_s3_file(
+    storage_service: StorageService, s3_key: str, context: str = ""
+) -> None:
+    try:
+        await run_in_threadpool(
+            storage_service.delete_file,
+            s3_key=s3_key,
+        )
+    except Exception as cleanup_error:
+        logger.error(
+            "Failed to cleanup S3 object%s: %s. Error: %s",
+            f" after {context}" if context else "",
+            s3_key,
+            cleanup_error,
+        )
 
 
 class ContentService:
@@ -72,34 +109,34 @@ class ContentService:
         return extension_map[extension]
 
     def _validate_file_size_early(self, file: UploadFile) -> None:
-        content_length = None
-        try:
-            headers = getattr(file, "headers", None)
-            if headers:
-                content_length = (
-                    headers.get("content-length")
-                    if isinstance(headers, dict)
-                    else getattr(headers, "get", lambda x: None)("content-length")
-                )
-        except Exception as e:
-            logger.debug("Could not read headers from file: %s", e)
+        print(f"file size: {file.size}")
+        if file.size is not None and file.size > MAX_FILE_SIZE:
+            raise ValueError("validated early: File too large. Maximum size is 50MB.")
 
-        if content_length:
-            try:
-                file_size = int(content_length)
-                if file_size > MAX_FILE_SIZE:
-                    raise ValueError("File too large. Maximum size is 50MB.")
-            except ValueError as e:
-                if "Maximum size" in str(e):
-                    raise
-                logger.warning(
-                    "Could not parse Content-Length for %s, will validate during upload",
-                    file.filename,
-                )
-        else:
-            logger.debug(
-                "Content-Length header missing or empty for %s. Size validation during upload.",
-                file.filename,
+    @staticmethod
+    def _validate_magic_bytes(file_bytes: bytes, file_type: EFileType) -> None:
+        signatures = FILE_MAGIC_SIGNATURES.get(file_type, [])
+        if not signatures:
+            return
+        for offset, magic in signatures:
+            if len(file_bytes) >= offset + len(magic):
+                if file_bytes[offset : offset + len(magic)] == magic:
+                    return
+        raise ValueError(INVALID_FILE_CONTENT_MESSAGE.format(file_type=file_type.value))
+
+    @staticmethod
+    def _validate_docx(file_path: str) -> None:
+        try:
+            with zipfile.ZipFile(file_path, "r") as zf:
+                if "word/document.xml" not in zf.namelist():
+                    raise ValueError(
+                        INVALID_FILE_CONTENT_MESSAGE.format(
+                            file_type=EFileType.DOCX.value
+                        )
+                    )
+        except zipfile.BadZipFile:
+            raise ValueError(
+                INVALID_FILE_CONTENT_MESSAGE.format(file_type=EFileType.DOCX.value)
             )
 
     async def get_job_by_document_id(
@@ -107,20 +144,107 @@ class ContentService:
     ) -> ProcessingJob | None:
         return await self.job_repo.get_by_document_id(document_id)
 
+    async def stream_job_progress(
+        self, document_id: uuid.UUID
+    ) -> AsyncGenerator[str, None]:
+        job = await self.get_job_by_document_id(document_id)
+        if not job:
+            error_payload = {"error": "Job not found"}
+            yield f"data: {json.dumps(error_payload)}\n\n"
+            return
+
+        document_id_str = str(document_id)
+        await sse_manager.publish(
+            document_id_str,
+            progress=job.progress,
+            stage=job.stage.value if job.stage else None,
+            status=job.status.value,
+            error_log=job.error_log,
+        )
+
+        redis_mirror_task = asyncio.create_task(
+            self._mirror_redis_progress_to_sse(document_id_str)
+        )
+
+        try:
+            async for event in sse_manager.subscribe(document_id_str):
+                yield f"data: {json.dumps(event)}\n\n"
+                if event.get("status") in {
+                    EJobStatus.COMPLETED.value,
+                    EJobStatus.FAILED.value,
+                }:
+                    break
+        except asyncio.CancelledError:
+            logger.info("SSE client disconnected for document %s", document_id)
+            raise
+        finally:
+            redis_mirror_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await redis_mirror_task
+
+    async def _mirror_redis_progress_to_sse(self, document_id: str) -> None:
+        redis_client = await CacheConnectionManager.get_connection()
+        if redis_client is None:
+            logger.debug("Redis unavailable for SSE mirroring: %s", document_id)
+            return
+
+        pubsub = redis_client.pubsub()
+        channel = progress_channel_name(document_id)
+
+        try:
+            await pubsub.subscribe(channel)
+            async for message in pubsub.listen():
+                if message.get("type") != "message":
+                    continue
+
+                try:
+                    payload = json.loads(message.get("data", "{}"))
+                except json.JSONDecodeError:
+                    logger.debug(
+                        "Ignoring malformed progress payload for %s", document_id
+                    )
+                    continue
+
+                if payload.get("document_id") != document_id:
+                    continue
+
+                await sse_manager.publish(
+                    document_id,
+                    progress=int(payload.get("progress", 0)),
+                    stage=payload.get("stage"),
+                    status=payload.get("status"),
+                    error_log=payload.get("error_log"),
+                )
+
+                if payload.get("status") in {
+                    EJobStatus.COMPLETED.value,
+                    EJobStatus.FAILED.value,
+                }:
+                    break
+        except asyncio.CancelledError:
+            raise
+        finally:
+            try:
+                await pubsub.unsubscribe(channel)
+            except Exception:
+                logger.debug("Redis pubsub unsubscribe failed for %s", document_id)
+            await pubsub.close()
+
     async def _trigger_pipeline(self, document_id: uuid.UUID) -> None:
         """Triggers the background processing pipeline for a document."""
-        try:
-            from celery import chain, group
-
-            from app.modules.processing.tasks import (
-                analyze_content_task,
-                extract_text_task,
-                generate_embeddings_task,
-                validate_and_finalize_job_task,
+        job = await self.job_repo.get_by_document_id(document_id)
+        if job and job.status == EJobStatus.COMPLETED:
+            logger.info(
+                "Pipeline already completed for document %s, skipping", document_id
             )
+            return
+        if job and job.status == EJobStatus.PROCESSING:
+            logger.info(
+                "Pipeline already in progress for document %s, skipping", document_id
+            )
+            return
 
-            # Optimization: Parallelize Analysis and Embedding after Extraction
-            # Finalize task ensures synchronization and state correctness
+        try:
             processing_pipeline = chain(
                 extract_text_task.s(str(document_id)),
                 group(analyze_content_task.s(), generate_embeddings_task.s()),
@@ -135,6 +259,65 @@ class ContentService:
                 "Failed to trigger pipeline for document %s: %s", document_id, e
             )
 
+    async def _return_existing_or_raise(
+        self, existing_doc: Document
+    ) -> TUploadResponse:
+        existing_job = await self.job_repo.get_by_document_id(existing_doc.id)
+        if not existing_job:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Duplicate file found but job is missing.",
+            )
+        return TUploadResponse(document=existing_doc, job=existing_job)
+
+    async def _save_and_validate_upload(
+        self,
+        file: UploadFile,
+        file_type: EFileType,
+        upload_dir: Path,
+    ) -> tuple[str, str]:
+        hasher = hashlib.sha256()
+        temp_path = str(upload_dir / f"{uuid.uuid4()}.tmp")
+        with open(temp_path, "wb") as temp_file:
+            first_chunk = await file.read(MAGIC_BYTE_READ_SIZE)
+            if not first_chunk:
+                raise ValueError("Empty file")
+            self._validate_magic_bytes(first_chunk, file_type)
+            hasher.update(first_chunk)
+            temp_file.write(first_chunk)
+            total_bytes = len(first_chunk)
+            while chunk := await file.read(65536):
+                hasher.update(chunk)
+                temp_file.write(chunk)
+                total_bytes += len(chunk)
+                if total_bytes > MAX_FILE_SIZE:
+                    raise ValueError("File too large. Maximum size is 50MB.")
+        file_hash = hasher.hexdigest()
+        if file_type == EFileType.DOCX:
+            self._validate_docx(temp_path)
+        return temp_path, file_hash
+
+    async def _handle_dedup_race(
+        self,
+        file_hash: str,
+        owner_id: uuid.UUID,
+        s3_key: str,
+    ) -> TUploadResponse:
+        logger.info(
+            "Race condition on dedup for hash %s, fetching existing document",
+            file_hash,
+        )
+        await _cleanup_s3_file(self.storage_service, s3_key, "dedup race")
+        await self.session.rollback()
+
+        existing_doc = await self.document_repo.get_by_file_hash(file_hash, owner_id)
+        if not existing_doc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Duplicate file found but document is missing.",
+            )
+        return await self._return_existing_or_raise(existing_doc)
+
     @cache_invalidate(ECacheKeyPrefix.CONTENT_SUMMARIES.value)
     @cache_invalidate(ECacheKeyPrefix.SEARCH_RESULTS.value)
     async def upload_document(
@@ -145,21 +328,21 @@ class ContentService:
     ) -> TUploadResponse:
         self._validate_file_size_early(file)
 
-        extension = file.filename.split(".")[-1].lower()
+        safe_filename = Path(file.filename).name
+        extension = safe_filename.split(".")[-1].lower()
         file_type = self._get_file_type(f"file.{extension}")
 
         file_id = document_id or uuid.uuid4()
         s3_key = f"{owner_id}/{file_id}.{extension}"
 
-        hasher = hashlib.sha256()
-        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-            temp_path = temp_file.name
-            while chunk := await file.read(65536):
-                hasher.update(chunk)
-                temp_file.write(chunk)
-            file_hash = hasher.hexdigest()
-
+        temp_path = None
+        upload_dir = Path("/tmp/uploads")
+        upload_dir.mkdir(parents=True, exist_ok=True)
         try:
+            temp_path, file_hash = await self._save_and_validate_upload(
+                file, file_type, upload_dir
+            )
+
             existing_doc = await self.document_repo.get_by_file_hash(
                 file_hash, owner_id
             )
@@ -169,16 +352,14 @@ class ContentService:
                     file_hash,
                     existing_doc.id,
                 )
-                existing_job = await self.job_repo.get_by_document_id(existing_doc.id)
-                if not existing_job:
-                    raise HTTPException(
-                        status_code=status.HTTP_409_CONFLICT,
-                        detail="Duplicate file found but job is missing.",
-                    )
-                return TUploadResponse(document=existing_doc, job=existing_job)
+                return await self._return_existing_or_raise(existing_doc)
 
+            total_bytes = os.path.getsize(temp_path)
             progress_callback = create_progress_callback(
-                self.progress_manager, str(file_id), max_progress=50
+                self.progress_manager,
+                str(file_id),
+                max_progress=40,
+                total_bytes=total_bytes,
             )
 
             content_type = file.content_type or "application/octet-stream"
@@ -195,34 +376,35 @@ class ContentService:
                     )
             except Exception as e:
                 logger.error("Failed to upload to S3: %s", e)
-                raise e
+                raise
 
             document = Document(
                 id=file_id,
                 owner_id=owner_id,
-                filename=file.filename,
+                filename=safe_filename,
                 s3_key=s3_key,
                 file_hash=file_hash,
                 file_type=file_type,
             )
-            created_doc = await self.document_repo.create(document)
+
+            try:
+                async with self.session.begin_nested():
+                    created_doc = await self.document_repo.create(document)
+            except IntegrityError as e:
+                pgcode = getattr(e.orig, "pgcode", None)
+                if pgcode != "23505":
+                    raise
+                return await self._handle_dedup_race(file_hash, owner_id, s3_key)
 
             job = ProcessingJob(
                 document_id=created_doc.id,
-                status=EJobStatus.PROCESSING,
+                status=EJobStatus.PENDING,
                 progress=0,
             )
             created_job = await self.job_repo.create(job)
 
-            await self._trigger_pipeline(created_doc.id)
             await self.session.commit()
-
-            if self.progress_manager:
-                await self.progress_manager.publish(
-                    str(created_doc.id),
-                    progress=0,
-                    stage="processing_started",
-                )
+            await self._trigger_pipeline(created_doc.id)
 
             return TUploadResponse(
                 document=created_doc,
@@ -231,29 +413,19 @@ class ContentService:
 
         except Exception as e:
             logger.error(
-                "Pipeline trigger or DB commit failed for file %s. S3 key: %s. Error: %s",
+                "Upload failed for file %s. S3 key: %s. Error: %s",
                 file.filename,
                 s3_key,
                 str(e),
             )
             await self.session.rollback()
+            await _cleanup_s3_file(self.storage_service, s3_key, "upload failure")
 
-            try:
-                await run_in_threadpool(
-                    self.storage_service.delete_file,
-                    s3_key=s3_key,
-                )
-                logger.info(
-                    "Cleaned up S3 object after pipeline/commit failure: %s", s3_key
-                )
-            except Exception as cleanup_error:
-                logger.error(
-                    "Failed to cleanup S3 object after failure: %s. Error: %s",
-                    s3_key,
-                    str(cleanup_error),
-                )
+            raise
 
-            raise e
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                os.unlink(temp_path)
 
     async def get_all_summaries(
         self,
