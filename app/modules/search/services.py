@@ -21,9 +21,7 @@ from app.modules.search.constants import (
 )
 from app.modules.search.repositories import SearchRepository
 from app.modules.search.schemas import (
-    TLegacySearchResponse,
     TSearchDocumentResult,
-    TSearchLegacyResult,
     TSearchMatchChunk,
     TSearchResponse,
 )
@@ -72,12 +70,17 @@ class SearchService:
         content = content.strip()
         content_lower = content.lower()
 
+        # Try to find best position from any query term
         best_pos = 0
-        best_term = query_terms[0] if query_terms else None
-        if best_term:
-            pos = content_lower.find(best_term.lower())
+        for term in query_terms:
+            pos = content_lower.find(term.lower())
             if pos >= 0:
                 best_pos = max(0, pos - 50)
+                break
+        else:
+            # No term matched literally — show middle section as fallback
+            mid = len(content) // 2
+            best_pos = max(0, mid - max_length // 2)
 
         snippet = content[best_pos : best_pos + max_length]
 
@@ -109,48 +112,68 @@ class SearchService:
         chunks: list[dict],
     ) -> str | None:
         if not chunks:
+            logger.debug("Synthesis skipped: no chunks provided")
             return None
 
-        try:
-            excerpts = []
-            for chunk in chunks[: settings.SYNTHESIS_MAX_CHUNKS]:
-                content = chunk.get("chunk_content", "")
-                if not SearchRepository.is_valid_chunk_content(content):
-                    continue
-                filename = chunk.get("filename", "Unknown")
-                excerpts.append(f"[Document: {filename}]\n{content.strip()}")
+        excerpts = []
+        for chunk in chunks[: settings.SYNTHESIS_MAX_CHUNKS]:
+            content = chunk.get("chunk_content", "")
+            if not SearchRepository.is_valid_chunk_content(content):
+                continue
+            filename = chunk.get("filename", "Unknown")
+            excerpts.append(f"[Document: {filename}]\n{content.strip()}")
 
-            if not excerpts:
-                return None
-
-            prompt = SYNTHESIS_PROMPT_TEMPLATE.format(
-                query=query,
-                excerpts="\n\n---\n\n".join(excerpts),
-            )
-
-            response = await litellm.acompletion(
-                model=settings.SEARCH_SYNTHESIS_MODEL,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are a helpful assistant. Answer directly and concisely "
-                            "based only on the provided document excerpts."
-                        ),
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.3,
-                max_tokens=150,
-                timeout=settings.SYNTHESIS_TIMEOUT_SECONDS,
-            )
-
-            answer = response.choices[0].message.content
-            return answer.strip() if answer else None
-
-        except Exception as e:
-            logger.warning("Synthesis failed: %s", str(e))
+        if not excerpts:
+            logger.debug("Synthesis skipped: all chunks had invalid content")
             return None
+
+        joined = "\n\n---\n\n".join(excerpts)
+        joined = joined.replace("{", "{{").replace("}", "}}")
+
+        prompt = SYNTHESIS_PROMPT_TEMPLATE.format(query=query, excerpts=joined)
+
+        models_to_try = [
+            settings.SEARCH_SYNTHESIS_MODEL,
+            settings.LITELLM_MODEL,
+            "gemini/gemini-2.5-flash",
+            "gemini/gemini-2.0-flash",
+        ]
+
+        for model in models_to_try:
+            try:
+                response = await litellm.acompletion(
+                    model=model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a helpful assistant. Answer directly and concisely "
+                            "based only on the provided document excerpts.",
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.3,
+                    max_tokens=500,
+                    timeout=settings.SYNTHESIS_TIMEOUT_SECONDS,
+                )
+
+                answer = response.choices[0].message.content
+                if answer and answer.strip():
+                    logger.info(
+                        "Synthesis generated for query '%s' using %s", query, model
+                    )
+                    return answer.strip()
+
+            except Exception as e:
+                logger.warning(
+                    "Synthesis model %s failed for query '%s': %s",
+                    model,
+                    query,
+                    str(e),
+                )
+                continue
+
+        logger.warning("All synthesis models exhausted for query: %s", query)
+        return None
 
     async def _cleanup_chunk_content(
         self,
@@ -200,8 +223,10 @@ class SearchService:
         if not query or not query.strip():
             raise ValueError(SearchError.EMPTY_QUERY)
 
-        if limit < 1 or limit > MAX_SEARCH_LIMIT:
+        if limit < 1:
             raise ValueError(SearchError.INVALID_LIMIT)
+
+        limit = min(limit, MAX_SEARCH_LIMIT)
 
         if offset < 0:
             offset = DEFAULT_SEARCH_OFFSET
@@ -251,57 +276,6 @@ class SearchService:
         return TSearchResponse(
             results=search_results,
             synthesis_answer=synthesis_answer,
-            total=total,
-            query=query,
-            limit=limit,
-            offset=offset,
-        )
-
-    @cached(
-        prefix=f"{ECacheKeyPrefix.SEARCH_RESULTS.value}:legacy",
-        ttl=CACHE_SEARCH_TTL,
-    )
-    async def search_legacy(
-        self,
-        query: str,
-        owner_id: uuid.UUID | None = None,
-        limit: int = DEFAULT_SEARCH_LIMIT,
-        offset: int = DEFAULT_SEARCH_OFFSET,
-    ) -> TLegacySearchResponse:
-        if not query or not query.strip():
-            raise ValueError(SearchError.EMPTY_QUERY)
-
-        if limit < 1 or limit > MAX_SEARCH_LIMIT:
-            raise ValueError(SearchError.INVALID_LIMIT)
-
-        if offset < 0:
-            offset = DEFAULT_SEARCH_OFFSET
-
-        query_embedding = await self._generate_query_embedding(query)
-
-        results, total = await self.search_repo.search_chunks(
-            query_embedding=query_embedding,
-            owner_id=owner_id,
-            limit=limit,
-            offset=offset,
-        )
-
-        search_results = [
-            TSearchLegacyResult(
-                document_id=r["document_id"],
-                filename=r["filename"],
-                file_type=r["file_type"],
-                chunk_content=r["chunk_content"],
-                chunk_index=r["chunk_index"],
-                similarity_score=r["similarity_score"],
-                summary=r["summary"],
-                created_at=r["created_at"],
-            )
-            for r in results
-        ]
-
-        return TLegacySearchResponse(
-            results=search_results,
             total=total,
             query=query,
             limit=limit,

@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str | None = None
     LITELLM_MODEL: str = "gemini/gemini-2.5-flash"
     LOCAL_EMBEDDING_MODEL: str = "BAAI/bge-base-en-v1.5"
-    SEARCH_SYNTHESIS_MODEL: str = "gemini/gemini-2.0-flash"
+    SEARCH_SYNTHESIS_MODEL: str = "gemini/gemini-2.5-flash"
 
     model_config = SettingsConfigDict(
         env_file=Path(__file__).resolve().parents[2] / ".env",

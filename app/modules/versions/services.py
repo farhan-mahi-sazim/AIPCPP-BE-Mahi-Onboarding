@@ -9,7 +9,7 @@ from app.common.cache.constants import (
 )
 from app.common.cache.decorators import cache_invalidate, cached
 from app.common.enums.version_source import EVersionSource
-from app.models.document import DocumentVersion
+from app.models.document import Document, DocumentVersion
 from app.modules.content.services import ContentDocumentService
 from app.modules.versions.schemas import (
     TPaginatedResponse,
@@ -104,6 +104,21 @@ class VersionService:
 
         return TVersionRead.model_validate(updated)
 
+    async def _delete_child_versions(
+        self,
+        version_id: UUID,
+        all_versions: list[DocumentVersion],
+        doc: Document,
+    ) -> None:
+        """Recursively delete all descendant versions (children before parent)."""
+        children = [v for v in all_versions if v.parent_version_id == version_id]
+        for child in children:
+            await self._delete_child_versions(child.id, all_versions, doc)
+            if doc.current_version_id == child.id:
+                doc.current_version_id = None
+                await self.session.flush()
+            await self.content_service.delete_version(child)
+
     @cache_invalidate(ECacheKeyPrefix.VERSION.value)
     async def delete_version(self, version_id: UUID) -> None:
         version = await self.content_service.get_version(version_id)
@@ -120,19 +135,16 @@ class VersionService:
 
         doc = await self.content_service.get_document(version.document_id)
 
-        # If this was the current version, roll back current_version_id
-        if doc and doc.current_version_id == version_id:
-            # Find the previous version
-            all_versions, _ = await self.content_service.get_versions_by_document_id(
-                doc.id, limit=2
-            )
-            previous_version = None
-            for v in all_versions:
-                if v.id != version_id:
-                    previous_version = v
-                    break
+        all_versions, _ = await self.content_service.get_versions_by_document_id(
+            doc.id, limit=1000
+        )
 
-            doc.current_version_id = previous_version.id if previous_version else None
+        await self._delete_child_versions(version_id, all_versions, doc)
+
+        if doc and doc.current_version_id == version_id:
+            remaining = [v for v in all_versions if v.id != version_id]
+            remaining.sort(key=lambda v: v.version_number, reverse=True)
+            doc.current_version_id = remaining[0].id if remaining else None
             await self.session.flush()
 
         await self.content_service.delete_version(version)

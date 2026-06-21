@@ -1,14 +1,15 @@
 DEFAULT_SEARCH_LIMIT = 10
 DEFAULT_SEARCH_OFFSET = 0
-MAX_SEARCH_LIMIT = 100
+MAX_SEARCH_LIMIT = 3
 SYNTHESIS_PROMPT_TEMPLATE = """You are a helpful assistant answering questions based on provided document excerpts.
 
-Given the user's question and the most relevant excerpts from documents, provide a direct, concise answer (2-3 sentences maximum).
+Given the user's question and the most relevant excerpts from documents, provide a direct, informative answer.
 
 Rules:
 - Answer only based on the provided excerpts
+- Be specific — reference actual details, comparisons, numbers, or names from the excerpts
+- Structure as 3-5 complete, natural sentences
 - If the excerpts don't contain enough information, say "I couldn't find a clear answer in the available documents."
-- Be specific and reference key details from the excerpts
 - Do not make up information
 
 User Question: {query}

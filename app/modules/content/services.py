@@ -7,9 +7,9 @@ import os
 import uuid
 import zipfile
 from collections.abc import AsyncGenerator
-from datetime import UTC, datetime
 from pathlib import Path
 
+import sqlalchemy as sa
 from celery import chain, group
 from fastapi import HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
@@ -628,6 +628,15 @@ class ContentDocumentService:
             raise StorageError(f"Failed to delete S3 file: {e}", s3_key=s3_key)
 
         doc.current_version_id = None
+        await self.session.flush()
+
+        # Nullify self-referencing FK on all versions to allow cascade delete
+        stmt = (
+            sa.update(DocumentVersion)
+            .where(DocumentVersion.document_id == document_id)
+            .values(parent_version_id=None)
+        )
+        await self.session.execute(stmt)
         await self.session.flush()
 
         await self.document_repo.delete_summary(doc)

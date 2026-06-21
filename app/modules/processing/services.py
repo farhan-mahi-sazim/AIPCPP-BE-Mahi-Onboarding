@@ -182,8 +182,8 @@ class ProcessingService:
 
         models_to_try = [
             settings.LITELLM_MODEL,
-            "gemini/gemma-4-31b-it",
-            "gemini/gemma-4-31b-it",
+            "gemini/gemini-2.5-flash",
+            "gemini/gemini-2.0-flash",
         ]
 
         last_exception = None

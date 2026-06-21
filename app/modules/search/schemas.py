@@ -53,26 +53,3 @@ class TSearchResponse(BaseModel):
     offset: int
 
     model_config = ConfigDict(from_attributes=True)
-
-
-class TSearchLegacyResult(BaseModel):
-    """DEPRECATED: Legacy chunk-level result. Use TSearchDocumentResult instead."""
-
-    document_id: UUID
-    filename: str
-    file_type: str
-    chunk_content: str
-    chunk_index: int
-    similarity_score: float
-    summary: str | None = None
-    created_at: datetime
-
-
-class TLegacySearchResponse(BaseModel):
-    """DEPRECATED: Legacy search response. Use TSearchResponse instead."""
-
-    results: list[TSearchLegacyResult]
-    total: int
-    query: str
-    limit: int
-    offset: int
